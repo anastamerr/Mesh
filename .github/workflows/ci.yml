@@ -1,0 +1,59 @@
+name: Verify
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: mesh
+          POSTGRES_PASSWORD: mesh_ci_only
+          POSTGRES_DB: mesh_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mesh -d mesh_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://mesh:mesh_ci_only@localhost:5432/mesh_test
+      MESH_TEST_DATABASE_URL: postgresql://mesh:mesh_ci_only@localhost:5432/mesh_test
+      MESH_ADMIN_KEY: ci_only_operator_key_not_for_real_deployments
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run db:migrate
+      - run: npm run db:migrate
+      - run: npm test
+      - run: npm run build
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - name: Check formatting
+        working-directory: agent
+        run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+        working-directory: agent
+      - run: go test ./...
+        working-directory: agent
+      - run: go build ./...
+        working-directory: agent
+      - run: go build ./...
+        working-directory: agent
+        env:
+          GOOS: windows
+          GOARCH: amd64

@@ -1,0 +1,13 @@
+{
+  "name": "mesh",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "npm run dev --workspace @mesh/control-plane",
+    "build": "npm run build --workspace @mesh/control-plane",
+    "typecheck": "npm run typecheck --workspace @mesh/control-plane",
+    "test": "npm run test --workspace @mesh/control-plane",
+    "db:migrate": "npm run db:migrate --workspace @mesh/control-plane"
+  }
+}

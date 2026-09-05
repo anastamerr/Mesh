@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: mesh
+      POSTGRES_USER: mesh
+      POSTGRES_PASSWORD: mesh_local_only
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - mesh-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mesh -d mesh"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  mesh-postgres:

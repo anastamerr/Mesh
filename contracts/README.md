@@ -1,0 +1,42 @@
+# Initial HTTP contract
+
+All routes return JSON. Errors use Nest's HTTP error shape. Secret-bearing responses use `Cache-Control: no-store`. Versioned business routes use `/v1`; health routes are unversioned.
+
+| Method | Route | Authentication | Success |
+| --- | --- | --- | --- |
+| GET | `/health/live` | None | 200 process alive |
+| GET | `/health/ready` | None | 200 schema reachable; otherwise 503 |
+| POST | `/v1/enrollment-tokens` | Operator bearer | 201 token and expiration; shown once |
+| POST | `/v1/nodes/enroll` | Enrollment token in body | 201 node, node credential, credential expiration |
+| GET | `/v1/nodes` | Operator bearer | 200 latest 100 nodes, without credentials |
+| POST | `/v1/nodes/:id/heartbeat` | That node's bearer | 200 accepted |
+| POST | `/v1/nodes/:id/revoke` | Operator bearer | 200 revoked, including repeat revocation |
+
+Enrollment body:
+
+```json
+{
+  "enrollmentToken": "<one-time token>",
+  "name": "Lenovo",
+  "platform": "windows",
+  "architecture": "amd64",
+  "agentVersion": "0.1.0-dev"
+}
+```
+
+Heartbeat body:
+
+```json
+{
+  "sequence": 0,
+  "inventory": {
+    "cpuLogicalCores": 8,
+    "memoryTotalBytes": 17179869184,
+    "memoryAvailableBytes": 8589934592
+  }
+}
+```
+
+Send every 15 seconds as an initial client policy. Increase and persist the sequence for every new observation. Nonincreasing sequences return 409 without changing presence; bad/expired/revoked credentials return 401. Unknown request fields and invalid inventory return 400. Revocation of a missing UUID returns 404.
+
+`unknown`: no heartbeat yet. `online`: last accepted receipt within 60 seconds. `unreachable`: older receipt. `revoked`: operator disabled identity. Inventory is self-reported and retains its last-seen timestamp; it is not an attestation. Disk/GPU inventory and execution environments are deferred to explicit contracts.
