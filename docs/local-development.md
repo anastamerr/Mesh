@@ -41,15 +41,21 @@ node --env-file=.env --import tsx --test test/*.test.ts
 
 The integration test creates and drops its own schema in `mesh_test`. The ordinary root `npm test` command only runs that test when `MESH_TEST_DATABASE_URL` is already set in the process environment.
 
-## Native skeleton
+To include the compiled agent integration test, build it first and add `MESH_TEST_AGENT_BINARY=/Users/anoos/Dev/Mesh/agent/bin/mesh-agent` to the test command's environment. Tests clean up their isolated schemas and temporary agent identities.
+
+## Native agent
 
 From `agent`:
 
 ```sh
+export CC=/usr/bin/clang
 go vet ./...
-go test ./...
+go test -race ./...
+go build -o bin/mesh-agent ./cmd/mesh-agent
 go run ./cmd/mesh-agent info
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o bin/mesh-agent.exe ./cmd/mesh-agent
 ```
 
-Cross-compilation proves the skeleton compiles for Windows. It does not validate Windows service or WSL behavior, which is not implemented yet.
+The conda Go compiler expects a conda C compiler by default; `CC` selects the already installed Apple compiler for host builds and race tests. Windows cross-compilation with `CGO_ENABLED=0` does not need it.
+
+Cross-compilation proves the agent compiles for Windows. It does not validate DPAPI at runtime, Windows service hosting, or WSL lifecycle behavior. See the agent README for local enrollment and foreground operation.

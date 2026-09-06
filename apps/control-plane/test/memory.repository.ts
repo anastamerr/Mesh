@@ -30,7 +30,12 @@ export class MemoryRepository implements NodeRepository {
     const { hash: _hash, expires: _expires, sequence: _sequence, ...record } = node;
     return record;
   }
-  async list() { return [...this.nodes.values()].map(node => this.publicNode(node)); }
+  async list() {
+    return [...this.nodes.values()]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id))
+      .slice(0, 100)
+      .map(node => this.publicNode(node));
+  }
   async revoke(id: string) {
     const node = this.nodes.get(id);
     if (!node) return false;

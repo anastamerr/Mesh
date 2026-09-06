@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
-import { Pool } from 'pg';
+import { createPool } from './database/connection';
 import { CONFIG, Config } from './config';
 import { AdminGuard } from './auth/admin.guard';
 import { PostgresNodeRepository } from './database/postgres.repository';
@@ -16,18 +16,15 @@ export async function createApp(config: Config, repository?: NodeRepository) {
     controllers: [HealthController, NodesController],
     providers: [
       { provide: CONFIG, useValue: config },
-      { provide: NODE_REPOSITORY, useFactory: () => repository ?? new PostgresNodeRepository(new Pool({
-        connectionString: config.databaseUrl, max: 10, connectionTimeoutMillis: 5000,
-        statement_timeout: 5000,
-      })) },
+      { provide: NODE_REPOSITORY, useFactory: () => repository ?? new PostgresNodeRepository(createPool(config.databaseUrl)) },
       AdminGuard, NodesService,
     ],
   })
   class AppModule {}
 
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule,
-    new FastifyAdapter({ bodyLimit: 16 * 1024, trustProxy: false }), { logger: ['error', 'warn'] });
-  app.getHttpAdapter().getInstance().addHook('onSend', async (_request, reply, payload) => {
+  const adapter = new FastifyAdapter({ bodyLimit: 16 * 1024, trustProxy: false });
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, { logger: ['error', 'warn'] });
+  adapter.getInstance().addHook('onSend', async (_request, reply, payload) => {
     reply.header('Cache-Control', 'no-store');
     reply.header('X-Content-Type-Options', 'nosniff');
     return payload;

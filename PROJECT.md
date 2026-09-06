@@ -72,7 +72,7 @@ Replication is not backup. Relocation is not live migration. A container image r
 
 ## Current implementation checkpoint
 
-See README.md for runnable components and limitations. Update this section and architecture decisions when scope changes. The first slice is backend-only enrollment and heartbeats; the Go commands are skeletons, not working Windows services.
+See README.md for runnable components and limitations. Update this section and architecture decisions when scope changes. The backend and foreground Go agent now support enrollment, persistent identity, CPU/RAM inventory, heartbeat sequencing, reconnection, and revocation. Real-agent integration tests exercise PostgreSQL and controller restarts. Windows service hosting, storage transfers, and compute are not implemented; the executor remains a skeleton. Current-user Windows DPAPI is implemented but must be runtime-validated on Windows.
 
 ## Open validation questions
 

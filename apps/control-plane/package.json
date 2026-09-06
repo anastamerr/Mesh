@@ -7,8 +7,8 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts",
-    "db:migrate": "tsx src/database/migrate.ts"
+    "test": "node --import tsx --test test/*.test.ts",
+    "db:migrate": "node --import tsx src/database/migrate.ts"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

@@ -1,16 +1,14 @@
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { Pool } from 'pg';
-import { readConfig } from '../config';
+import { createPool, transaction } from './connection';
+import { loadEnvironment, readDatabaseUrl } from '../config';
 
 async function main() {
-  const config = readConfig();
-  const pool = new Pool({ connectionString: config.databaseUrl, connectionTimeoutMillis: 5000 });
+  loadEnvironment();
+  const pool = createPool(readDatabaseUrl());
   try {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
+    await transaction(pool, async client => {
       await client.query('SELECT pg_advisory_xact_lock(68435791)');
       await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations
         (name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`);
@@ -28,11 +26,7 @@ async function main() {
         await client.query('INSERT INTO schema_migrations (name, checksum) VALUES ($1, $2)', [name, checksum]);
         console.info(`Applied ${name}`);
       }
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally { client.release(); }
+    });
   } finally { await pool.end(); }
 }
 

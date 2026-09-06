@@ -52,13 +52,14 @@ test('enrollment, credential isolation, monotonic heartbeat, and revocation', as
   assert.equal(repository.nodes.get(first.node.id)!.lastSeenAt, seen);
   assert.equal((await request({ method: 'POST', url, headers, payload: { sequence: 1, inventory } })).statusCode, 200);
   const list = await request({ method: 'GET', url: '/v1/nodes', headers: admin });
-  assert.equal(list.json()[0].status, 'online');
-  assert.equal(list.json()[1].status, 'unknown');
+  assert.equal(list.json().find((node: { id: string }) => node.id === first.node.id).status, 'online');
+  assert.equal(list.json().find((node: { id: string }) => node.id === second.node.id).status, 'unknown');
   assert.ok(!list.body.includes(first.nodeCredential));
   assert.ok(!list.body.includes(hashToken(first.nodeCredential)));
   assert.equal((await request({ method: 'POST', url: `/v1/nodes/${first.node.id}/revoke`, headers: admin })).statusCode, 200);
   assert.equal((await request({ method: 'POST', url, headers, payload: { sequence: 2, inventory } })).statusCode, 401);
-  assert.equal((await request({ method: 'GET', url: '/v1/nodes', headers: admin })).json()[0].status, 'revoked');
+  const revoked = (await request({ method: 'GET', url: '/v1/nodes', headers: admin })).json();
+  assert.equal(revoked.find((node: { id: string }) => node.id === first.node.id).status, 'revoked');
 });
 
 test('expired enrollment and node credentials fail; malformed input is rejected', async t => {

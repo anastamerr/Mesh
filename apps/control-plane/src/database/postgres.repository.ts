@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { Pool, PoolClient } from 'pg';
+import { Pool } from 'pg';
+import { transaction } from './connection';
 import { Enrollment, Heartbeat } from '../nodes/contracts';
 import { NodeRecord, NodeRepository } from '../nodes/repository';
 
@@ -9,21 +10,8 @@ const publicColumns = `id, name, platform, architecture, agent_version AS "agent
 export class PostgresNodeRepository implements NodeRepository {
   constructor(private readonly pool: Pool) {}
 
-  private async transaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const result = await fn(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally { client.release(); }
-  }
-
   async createEnrollment(hash: string, expiresAt: Date): Promise<void> {
-    await this.transaction(async client => {
+    await transaction(this.pool, async client => {
       await client.query('DELETE FROM enrollment_tokens WHERE expires_at <= now()');
       await client.query('INSERT INTO enrollment_tokens (token_hash, expires_at) VALUES ($1, $2)', [hash, expiresAt]);
       await client.query("INSERT INTO audit_events (action) VALUES ('enrollment.created')");
@@ -32,7 +20,7 @@ export class PostgresNodeRepository implements NodeRepository {
 
   async enroll(input: Enrollment, enrollmentHash: string, credentialHash: string,
     credentialExpiresAt: Date): Promise<NodeRecord | null> {
-    return this.transaction(async client => {
+    return transaction(this.pool, async client => {
       // DELETE locks the token row: concurrent requests cannot consume it twice.
       // A failed node insertion rolls back consumption as well.
       const consumed = await client.query(`DELETE FROM enrollment_tokens
@@ -49,30 +37,32 @@ export class PostgresNodeRepository implements NodeRepository {
   }
 
   async heartbeat(nodeId: string, credentialHash: string, input: Heartbeat): Promise<'accepted' | 'stale' | 'unauthorized'> {
-    return this.transaction(async client => {
-      // Serializes heartbeat checks with both revocation and other heartbeats.
-      const result = await client.query<{ heartbeat_sequence: string }>(`SELECT heartbeat_sequence FROM nodes
-        WHERE id = $1 AND credential_hash = $2 AND revoked_at IS NULL AND credential_expires_at > now()
-        FOR UPDATE`, [nodeId, credentialHash]);
-      const node = result.rows[0];
-      if (!node) return 'unauthorized';
-      if (input.sequence <= Number(node.heartbeat_sequence)) return 'stale';
-      await client.query(`UPDATE nodes SET last_seen_at = clock_timestamp(), heartbeat_sequence = $2,
-        inventory = $3::jsonb WHERE id = $1`, [nodeId, input.sequence, JSON.stringify(input.inventory)]);
-      return 'accepted';
-    });
+    // UPDATE acquires the row lock and rechecks its predicate after a concurrent
+    // update. The normal path needs one round trip, without weakening sequence
+    // or revocation enforcement. Rejected requests never refresh presence.
+    const updated = await this.pool.query(`UPDATE nodes SET last_seen_at = clock_timestamp(),
+      heartbeat_sequence = $3, inventory = $4::jsonb
+      WHERE id = $1 AND credential_hash = $2 AND revoked_at IS NULL
+        AND credential_expires_at > now() AND heartbeat_sequence < $3 RETURNING id`,
+      [nodeId, credentialHash, input.sequence, JSON.stringify(input.inventory)]);
+    if (updated.rowCount) return 'accepted';
+    const authorized = await this.pool.query(`SELECT id FROM nodes WHERE id = $1 AND credential_hash = $2
+      AND revoked_at IS NULL AND credential_expires_at > now()`, [nodeId, credentialHash]);
+    return authorized.rowCount ? 'stale' : 'unauthorized';
   }
 
   async list(): Promise<NodeRecord[]> {
-    return (await this.pool.query<NodeRecord>(`SELECT ${publicColumns} FROM nodes ORDER BY created_at DESC LIMIT 100`)).rows;
+    return (await this.pool.query<NodeRecord>(`SELECT ${publicColumns} FROM nodes ORDER BY created_at DESC, id DESC LIMIT 100`)).rows;
   }
 
   async revoke(nodeId: string): Promise<boolean> {
-    return this.transaction(async client => {
-      const result = await client.query('UPDATE nodes SET revoked_at = COALESCE(revoked_at, now()) WHERE id = $1 RETURNING id', [nodeId]);
-      if (!result.rowCount) return false;
-      await client.query("INSERT INTO audit_events (action, node_id) VALUES ('node.revoked', $1)", [nodeId]);
-      return true;
+    return transaction(this.pool, async client => {
+      const result = await client.query('UPDATE nodes SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL RETURNING id', [nodeId]);
+      if (result.rowCount) {
+        await client.query("INSERT INTO audit_events (action, node_id) VALUES ('node.revoked', $1)", [nodeId]);
+        return true;
+      }
+      return Boolean((await client.query('SELECT id FROM nodes WHERE id = $1', [nodeId])).rowCount);
     });
   }
 

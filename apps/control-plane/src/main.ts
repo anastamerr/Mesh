@@ -1,7 +1,8 @@
 import { createApp } from './app';
-import { readConfig } from './config';
+import { loadEnvironment, readConfig } from './config';
 
 async function main() {
+  loadEnvironment();
   const config = readConfig();
   const app = await createApp(config);
   await app.listen(config.port, config.host);

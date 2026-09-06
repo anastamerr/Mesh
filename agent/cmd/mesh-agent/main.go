@@ -1,26 +1,19 @@
-// mesh-agent is the future native host service. No host mutations are implemented yet.
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"os"
-	"runtime"
+	"os/signal"
+	"syscall"
 
-	"mesh.local/agent/internal/buildinfo"
+	"mesh.local/agent/internal/cli"
 )
 
 func main() {
-	if len(os.Args) != 2 || os.Args[1] != "info" {
-		fmt.Fprintln(os.Stderr, "Usage: mesh-agent info (development skeleton; enrollment and service mode are not implemented)")
-		os.Exit(2)
-	}
-	if err := json.NewEncoder(os.Stdout).Encode(map[string]any{
-		"agentVersion":    buildinfo.Version,
-		"platform":        runtime.GOOS,
-		"architecture":    runtime.GOARCH,
-		"cpuLogicalCores": runtime.NumCPU(),
-	}); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := cli.Execute(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

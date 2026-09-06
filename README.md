@@ -4,17 +4,19 @@
 
 Start with [the product idea and roadmap](PROJECT.md), [architecture decision](docs/decisions/0001-foundation.md), and [HTTP contract](contracts/README.md).
 
+Follow [the engineering standards](docs/engineering-standards.md) for modularity, performance claims, and pre-commit verification.
+
 ## Current status
 
-Backend foundation only. Implemented: PostgreSQL migrations, operator-authorized enrollment token creation, atomic one-use node enrollment, hashed expiring node credentials, validated heartbeats, observed presence, listing, revocation, and persisted lifecycle audit events.
+Backend and first working native-agent slice. Implemented: PostgreSQL migrations, operator-authorized enrollment token creation, atomic one-use node enrollment, hashed expiring node credentials, validated heartbeats, observed presence, listing, revocation, and persisted lifecycle audit events.
 
-The Go commands only report build/host information. No Windows service, WSL provisioning, transfers, Docker execution, remote tunnel, accounts, or UI exists yet.
+The Go agent enrolls, stores its identity, reports real CPU/RAM inventory, and sends heartbeats with durable sequences and reconnect backoff. The Linux executor remains a skeleton. No Windows service, WSL provisioning, transfers, Docker execution, remote tunnel, accounts, or UI exists yet. See [agent commands and guarantees](agent/README.md).
 
 ## Local setup
 
 For the user-local Go/PostgreSQL installation on the development Mac, see [local development instructions](docs/local-development.md). That installation can be used instead of the Compose database below.
 
-Prerequisites: Node.js 22+, npm, Docker Compose (or a PostgreSQL 17 database). Go 1.23+ is only needed for native skeleton commands.
+Prerequisites: Node.js 22+, npm, Docker Compose (or a PostgreSQL 17 database). Go 1.25+ is needed for the native agent.
 
 ```sh
 npm install
@@ -49,6 +51,8 @@ npm run build
 
 Tests use an in-memory repository for HTTP/security behavior; they do not validate PostgreSQL locking. Optional PostgreSQL integration tests are described in the test source and enabled with `MESH_TEST_DATABASE_URL` pointing to a dedicated test database. Never use a production database for tests.
 
-CI provisions PostgreSQL, runs migrations twice to check rerun behavior, and runs both HTTP and database tests. A separate CI job checks Go formatting, vets the native skeleton, and builds Linux and Windows targets. These checks execute when the repository is pushed to GitHub; adding the workflow does not mean it has already run.
+Set `MESH_TEST_AGENT_BINARY` to the absolute path of a compiled agent to also run the real-agent integration test against an isolated PostgreSQL schema and temporary HTTP server. It verifies enrollment, sequence persistence across agent processes and controller restart, and revocation.
+
+CI provisions PostgreSQL, runs migrations twice, builds the agent, and runs the complete integration suite. Native jobs check Go formatting, vet, and race tests on Linux, macOS, and Windows. These checks execute when the repository is pushed to GitHub; adding the workflow does not mean it has already run.
 
 See [agent instructions](agent/README.md) for native commands. No frontend workspace has been created.

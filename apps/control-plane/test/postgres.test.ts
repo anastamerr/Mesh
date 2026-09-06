@@ -34,11 +34,29 @@ test('PostgreSQL atomically consumes enrollment and serializes heartbeats/revoca
     const heartbeat = { sequence: 0, inventory: { cpuLogicalCores: 8, memoryTotalBytes: 16, memoryAvailableBytes: 8 } };
     const beats = await Promise.all([repository.heartbeat(node.id, hash, heartbeat), repository.heartbeat(node.id, hash, heartbeat)]);
     assert.deepEqual(beats.sort(), ['accepted', 'stale']);
+    const before = await pool.query('SELECT last_seen_at, inventory FROM nodes WHERE id = $1', [node.id]);
+    assert.equal(await repository.heartbeat(node.id, hash, heartbeat), 'stale');
+    const after = await pool.query('SELECT last_seen_at, inventory FROM nodes WHERE id = $1', [node.id]);
+    assert.deepEqual(after.rows, before.rows, 'stale observations must not refresh presence or inventory');
+    // A concurrent higher sequence must win regardless of request ordering.
+    await Promise.all([1, 8, 3, 6].map(sequence => repository.heartbeat(node.id, hash, { ...heartbeat, sequence })));
+    assert.equal((await pool.query('SELECT heartbeat_sequence FROM nodes WHERE id = $1', [node.id])).rows[0].heartbeat_sequence, '8');
     assert.equal(await repository.heartbeat(node.id, 'wrong', { ...heartbeat, sequence: 1 }), 'unauthorized');
-    await repository.revoke(node.id);
+    await Promise.all([repository.revoke(node.id), repository.revoke(node.id)]);
+    assert.equal((await pool.query("SELECT count(*) FROM audit_events WHERE action = 'node.revoked' AND node_id = $1", [node.id])).rows[0].count, '1');
     assert.equal(await repository.heartbeat(node.id, hash, { ...heartbeat, sequence: 1 }), 'unauthorized');
     assert.equal((await repository.list()).length, 1);
     assert.equal(await repository.ready(), true);
+    // Failed node insertion must roll back token consumption.
+    await repository.createEnrollment('rollback-token', new Date(Date.now() + 60_000));
+    await assert.rejects(repository.enroll(input, 'rollback-token', hash, new Date(Date.now() + 60_000)));
+    const replacement = await repository.enroll(input, 'rollback-token', 'new-credential', new Date(Date.now() + 60_000));
+    assert.ok(replacement);
+    await Promise.all([
+      repository.heartbeat(replacement.id, 'new-credential', heartbeat),
+      repository.revoke(replacement.id),
+    ]);
+    assert.equal(await repository.heartbeat(replacement.id, 'new-credential', { ...heartbeat, sequence: 1 }), 'unauthorized');
   } finally {
     await pool?.end();
     await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

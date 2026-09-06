@@ -4,6 +4,7 @@
   "workspaces": ["apps/*"],
   "engines": { "node": ">=22" },
   "scripts": {
+    "agent:enroll": "node --env-file=apps/control-plane/.env scripts/enroll-local-agent.mjs",
     "dev": "npm run dev --workspace @mesh/control-plane",
     "build": "npm run build --workspace @mesh/control-plane",
     "typecheck": "npm run typecheck --workspace @mesh/control-plane",
