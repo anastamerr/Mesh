@@ -21,13 +21,13 @@ type options struct {
 func parseOptions(args []string, logs io.Writer) (options, error) {
 	var o options
 	if len(args) == 0 {
-		return o, errors.New("usage: mesh-agent info | enroll | status | heartbeat | run (use <command> --help)")
+		return o, errors.New("usage: mesh-agent info | enroll | status | heartbeat | run | storage (use <command> --help)")
 	}
 	o.command = args[0]
 	switch o.command {
 	case "info", "enroll", "status", "heartbeat", "run":
 	default:
-		return o, errors.New("unknown command; use info, enroll, status, heartbeat, or run")
+		return o, errors.New("unknown command; use info, enroll, status, heartbeat, run, or storage")
 	}
 	flags := flag.NewFlagSet(o.command, flag.ContinueOnError)
 	flags.SetOutput(logs)

@@ -21,6 +21,9 @@ import (
 )
 
 func Execute(ctx context.Context, args []string, input io.Reader, output, logs io.Writer) error {
+	if len(args) > 0 && args[0] == "storage" {
+		return executeStorage(ctx, args[1:], output, logs)
+	}
 	o, err := parseOptions(args, logs)
 	if errors.Is(err, flag.ErrHelp) {
 		return nil

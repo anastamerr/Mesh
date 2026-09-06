@@ -42,4 +42,29 @@ Every stateful command accepts `--state-dir` for isolated identities. The defaul
 
 Tests cover these contracts; Windows DPAPI/service behavior still needs actual Windows validation. CI includes Windows, macOS, and Linux tests. The module name is intentionally local until the repository's public location is decided.
 
-Next: Windows service lifecycle validation, storage-root permissions, resumable transfers, then a separately authenticated WSL executor.
+Next: controller-authorized storage routing, Windows service lifecycle validation, then a separately authenticated WSL executor.
+
+## Copy folders with native storage
+
+Build `bin/mesh-agent` as above. From the `agent` directory, use a directory outside the repository for private state. On Unix:
+
+```sh
+mkdir -p "$HOME/.mesh-local"
+chmod 700 "$HOME/.mesh-local"
+bin/mesh-agent storage keygen --key-file "$HOME/.mesh-local/storage.key"
+bin/mesh-agent storage serve --root "$HOME/.mesh-local/files" --key-file "$HOME/.mesh-local/storage.key"
+```
+
+In another terminal:
+
+```sh
+bin/mesh-agent storage upload --server http://127.0.0.1:7332 --key-file "$HOME/.mesh-local/storage.key" --source /absolute/path/to/folder
+bin/mesh-agent storage list --server http://127.0.0.1:7332 --key-file "$HOME/.mesh-local/storage.key"
+bin/mesh-agent storage download --server http://127.0.0.1:7332 --key-file "$HOME/.mesh-local/storage.key" --id COLLECTION_ID --destination /absolute/path/to/new-copy
+```
+
+Upload prints the collection ID. Stop and restart the storage server, then repeat the same upload command to resume. Completed files live under `<root>/collections/<id>/` as ordinary files. `list --after COLLECTION_ID` retrieves the next page after a 100-item page. Downloads require a destination that does not exist.
+
+For another machine, securely provision the same storage key on the client and configure `serve --listen <address>:7332 --tls-cert <certificate.pem> --tls-key <private-key.pem>`. Use an HTTPS URL whose hostname matches a certificate trusted by the client. There is no certificate-verification bypass. Windows uses the same agent commands; provision private directory/key ACLs for the serving account.
+
+This is a direct storage connection, separate from enrollment/heartbeats. A node's control-plane revocation does not yet disable its storage key. Keep the listener on loopback for the local demo; controller-issued permissions and gateway routing are the next integration step. Read [the storage contract and limitations](../docs/decisions/0003-native-storage.md) before using it across machines.

@@ -40,3 +40,7 @@ Heartbeat body:
 Send every 15 seconds as an initial client policy. Increase and persist the sequence for every new observation. Nonincreasing sequences return 409 without changing presence; bad/expired/revoked credentials return 401. Unknown request fields and invalid inventory return 400. Revocation of a missing UUID returns 404.
 
 `unknown`: no heartbeat yet. `online`: last accepted receipt within 60 seconds. `unreachable`: older receipt. `revoked`: operator disabled identity. Inventory is self-reported and retains its last-seen timestamp; it is not an attestation. Disk/GPU inventory and execution environments are deferred to explicit contracts.
+
+## Native storage data API
+
+The separate agent endpoint is documented in [ADR 0003](../docs/decisions/0003-native-storage.md), including manifest, chunk, authorization, recovery and publication semantics. It does not run on the control-plane port.

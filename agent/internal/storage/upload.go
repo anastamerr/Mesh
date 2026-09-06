@@ -1,0 +1,100 @@
+package storage
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+)
+
+func validateProgress(p Progress, m Manifest, id string) error {
+	if p.ID != id || len(p.Offsets) != len(m.Entries) {
+		return ErrInvalid
+	}
+	for i, e := range m.Entries {
+		if p.Offsets[i] < 0 || p.Offsets[i] > e.Size || (p.Complete && p.Offsets[i] != e.Size) {
+			return ErrInvalid
+		}
+	}
+	return nil
+}
+func (c *Client) Upload(ctx context.Context, source string) (string, error) {
+	root, err := os.OpenRoot(source)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	m, err := Scan(ctx, root)
+	if err != nil {
+		return "", err
+	}
+	_, id, err := m.encoded()
+	if err != nil {
+		return "", err
+	}
+	var p Progress
+	if err = c.json(ctx, "POST", "/v1/collections", m, &p); err != nil {
+		return "", err
+	}
+	if err = validateProgress(p, m, id); err != nil {
+		return "", err
+	}
+	if p.Complete {
+		return id, nil
+	}
+	buffer := make([]byte, ChunkSize)
+	for i, e := range m.Entries {
+		if e.Directory || p.Offsets[i] == e.Size {
+			continue
+		}
+		f, err := regular(root, e.Path, os.O_RDONLY)
+		if err != nil {
+			return "", err
+		}
+		err = c.uploadFile(ctx, id, i, f, e.Size, p.Offsets[i], buffer)
+		err = errors.Join(err, f.Close())
+		if err != nil {
+			return "", err
+		}
+	}
+	if err = c.json(ctx, "POST", "/v1/collections/"+id+"/finish", nil, &p); err != nil {
+		return "", err
+	}
+	if err = validateProgress(p, m, id); err != nil {
+		return "", err
+	}
+	if !p.Complete {
+		return "", ErrConflict
+	}
+	return id, nil
+}
+func (c *Client) uploadFile(ctx context.Context, id string, index int, f *os.File, size, offset int64, buffer []byte) error {
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return err
+	}
+	for offset < size {
+		n := min(int64(len(buffer)), size-offset)
+		if _, err := io.ReadFull(f, buffer[:n]); err != nil {
+			return err
+		}
+		res, err := c.request(ctx, "PUT", fmt.Sprintf("/v1/collections/%s/files/%d", id, index), bytes.NewReader(buffer[:n]), &offset)
+		if err != nil {
+			return err
+		}
+		var ack struct {
+			Offset *int64 `json:"offset"`
+		}
+		err = readJSON(res.Body, &ack)
+		res.Body.Close()
+		if err != nil {
+			return err
+		}
+		if ack.Offset == nil || *ack.Offset != offset+n {
+			return errors.New("invalid upload acknowledgement")
+		}
+		offset += n
+	}
+	return nil
+}

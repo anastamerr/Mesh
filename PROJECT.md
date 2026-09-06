@@ -34,7 +34,7 @@ Defer multi-user organizations, public publishing, arbitrary shell access, Compo
 - **Go** for the native agent and Linux executor; this is a long-term choice, not a temporary implementation to rewrite in Rust.
 - **TypeScript, NestJS, Fastify** for one modular control-plane service.
 - **PostgreSQL** for central identities, desired state, operations, and metadata.
-- **SQLite** later for agent-local durable transfer and operation state.
+- **SQLite** for agent-local durable transfer state; later extend it for operations.
 - **WSL2 and Docker Engine** for the first Windows compute environment; validate lifecycle before committing to unattended startup guarantees.
 - **React and TypeScript** for a later browser dashboard.
 - **Resumable HTTP uploads** for files; ordinary host files remain independently readable.
@@ -72,7 +72,7 @@ Replication is not backup. Relocation is not live migration. A container image r
 
 ## Current implementation checkpoint
 
-See README.md for runnable components and limitations. Update this section and architecture decisions when scope changes. The backend and foreground Go agent now support enrollment, persistent identity, CPU/RAM inventory, heartbeat sequencing, reconnection, and revocation. Real-agent integration tests exercise PostgreSQL and controller restarts. Windows service hosting, storage transfers, and compute are not implemented; the executor remains a skeleton. Current-user Windows DPAPI is implemented but must be runtime-validated on Windows.
+See README.md for runnable components and limitations. Update this section and architecture decisions when scope changes. The backend and foreground Go agent now support enrollment, persistent identity, CPU/RAM inventory, heartbeat sequencing, reconnection, and revocation. Real-agent integration tests exercise PostgreSQL and controller restarts. Native storage now supports immutable folder copies, SQLite transfer recovery, checksums, listing and retrieval through a direct TLS-capable agent endpoint and CLI. Storage currently uses a separate bootstrap key; controller authorization and gateway routing remain pending. Windows service hosting and compute are not implemented; the executor remains a skeleton. Current-user Windows DPAPI is implemented but must be runtime-validated on Windows.
 
 ## Open validation questions
 

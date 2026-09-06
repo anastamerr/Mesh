@@ -1,0 +1,84 @@
+package storage
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+)
+
+func (c *Client) Download(ctx context.Context, id, destination string) (err error) {
+	if !validID(id) {
+		return ErrInvalid
+	}
+	// Reserve a new destination instead of merging into or replacing user files.
+	if err = os.Mkdir(destination, 0700); err != nil {
+		return err
+	}
+	success := false
+	defer func() {
+		if !success {
+			err = errors.Join(err, os.RemoveAll(destination))
+		}
+	}()
+	root, err := os.OpenRoot(destination)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	var m Manifest
+	if err = c.json(ctx, "GET", "/v1/collections/"+id, nil, &m); err != nil {
+		return err
+	}
+	_, actual, err := m.encoded()
+	if err != nil {
+		return err
+	}
+	if actual != id {
+		return ErrConflict
+	}
+	for i, e := range m.Entries {
+		if e.Directory {
+			if err = root.MkdirAll(e.Path, 0700); err != nil {
+				return err
+			}
+			continue
+		}
+		if err = c.downloadFile(ctx, root, id, i, e); err != nil {
+			return err
+		}
+	}
+	if err = syncTree(root, m); err != nil {
+		return err
+	}
+	// Ensure creation of the destination itself is durable on Unix.
+	parent, err := os.OpenRoot(filepath.Dir(destination))
+	if err != nil {
+		return err
+	}
+	err = syncDirectory(parent, ".")
+	parent.Close()
+	if err != nil {
+		return err
+	}
+	success = true
+	return nil
+}
+func (c *Client) downloadFile(ctx context.Context, root *os.Root, id string, index int, e Entry) (err error) {
+	res, err := c.request(ctx, "GET", fmt.Sprintf("/v1/collections/%s/files/%d", id, index), nil, nil)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	f, err := root.OpenFile(e.Path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, f.Close()) }()
+	if err = verify(ctx, io.TeeReader(res.Body, f), e); err != nil {
+		return err
+	}
+	return f.Sync()
+}
