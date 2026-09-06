@@ -37,6 +37,7 @@ jobs:
           cache-dependency-path: agent/go.sum
       - run: go build -o bin/mesh-agent ./cmd/mesh-agent
         working-directory: agent
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm run db:migrate
       - run: npm run db:migrate

@@ -134,3 +134,26 @@ func (c *Client) post(ctx context.Context, path, credential string, body, output
 	}
 	return nil
 }
+
+// AuthorizeStorage validates one transfer request against current controller state.
+func (c *Client) AuthorizeStorage(ctx context.Context, id, credential, token, access string, collectionID *string) error {
+	var acknowledgement struct {
+		Accepted bool `json:"accepted"`
+	}
+	input := struct {
+		Token      string `json:"token"`
+		Permission struct {
+			Access       string  `json:"access"`
+			CollectionID *string `json:"collectionId"`
+		} `json:"permission"`
+	}{Token: token}
+	input.Permission.Access = access
+	input.Permission.CollectionID = collectionID
+	if err := c.post(ctx, "/v1/nodes/"+url.PathEscape(id)+"/storage-grants/validate", credential, input, &acknowledgement); err != nil {
+		return err
+	}
+	if !acknowledgement.Accepted {
+		return ErrProtocol
+	}
+	return nil
+}

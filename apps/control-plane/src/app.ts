@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { STORAGE_GRANTS, StorageGrantRepository } from './storage/repository';
+import { StorageController } from './storage/storage.controller';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -11,12 +13,13 @@ import { NodesController } from './nodes/nodes.controller';
 import { NodesService } from './nodes/nodes.service';
 import { NODE_REPOSITORY, NodeRepository } from './nodes/repository';
 
-export async function createApp(config: Config, repository?: NodeRepository) {
+export async function createApp(config: Config, repository?: NodeRepository & StorageGrantRepository) {
   @Module({
-    controllers: [HealthController, NodesController],
+    controllers: [HealthController, NodesController, StorageController],
     providers: [
       { provide: CONFIG, useValue: config },
       { provide: NODE_REPOSITORY, useFactory: () => repository ?? new PostgresNodeRepository(createPool(config.databaseUrl)) },
+      { provide: STORAGE_GRANTS, useExisting: NODE_REPOSITORY },
       AdminGuard, NodesService,
     ],
   })

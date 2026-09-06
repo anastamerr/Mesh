@@ -1,14 +1,25 @@
 {
   "name": "mesh",
   "private": true,
-  "workspaces": ["apps/*"],
-  "engines": { "node": ">=22" },
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "scripts": {
+    "lint": "oxlint . --deny-warnings",
     "agent:enroll": "node --env-file=apps/control-plane/.env scripts/enroll-local-agent.mjs",
     "dev": "npm run dev --workspace @mesh/control-plane",
     "build": "npm run build --workspace @mesh/control-plane",
     "typecheck": "npm run typecheck --workspace @mesh/control-plane",
     "test": "npm run test --workspace @mesh/control-plane",
-    "db:migrate": "npm run db:migrate --workspace @mesh/control-plane"
+    "db:migrate": "npm run db:migrate --workspace @mesh/control-plane",
+    "storage:grant": "node --env-file=apps/control-plane/.env scripts/storage-grant-local.mjs"
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "1.81.0",
+    "oxlint": "1.81.0",
+    "zod": "4.5.4"
   }
 }

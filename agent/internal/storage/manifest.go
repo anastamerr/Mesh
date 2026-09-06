@@ -116,3 +116,9 @@ func decodeManifest(data []byte, m *Manifest) error {
 	}
 	return m.Validate()
 }
+
+// ID returns the stable collection identifier used to scope transfer grants.
+func (m Manifest) ID() (string, error) {
+	_, id, err := m.encoded()
+	return id, err
+}

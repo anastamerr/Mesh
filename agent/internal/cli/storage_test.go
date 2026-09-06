@@ -35,6 +35,8 @@ func TestStorageKeyLifecycle(t *testing.T) {
 func TestStorageValidationPrecedesSideEffects(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "not-created")
 	for _, args := range [][]string{
+		{"storage", "serve", "--root", root, "--enrolled", "--key-file", "missing"},
+		{"storage", "serve", "--root", root, "--listen", "0.0.0.0:7332", "--tls-cert", "missing", "--tls-key", "missing", "--key-file", "missing"},
 		{"storage", "serve", "--root", root, "--listen", "0.0.0.0:7332", "--key-file", "missing"},
 		{"storage", "serve", "--root", root, "--tls-cert", "missing", "--key-file", "missing"},
 		{"storage", "serve", "--root", root},

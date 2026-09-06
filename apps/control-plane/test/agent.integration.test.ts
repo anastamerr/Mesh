@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { storageFlow } from './storage-flow';
 import { strict as assert } from 'node:assert';
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -12,9 +14,9 @@ import { PostgresNodeRepository } from '../src/database/postgres.repository';
 
 // Runs the real compiled Go executable against HTTP and an isolated PostgreSQL schema.
 // Neither credentials nor enrollment tokens are passed on the command line.
-test('real agent enrolls, persists sequence across processes/controller restart, and stops after revocation', {
+test('real agent enrolls, persists sequence across processes/controller restart, and enforces storage grants through outage and revocation', {
   skip: !process.env.MESH_TEST_DATABASE_URL || !process.env.MESH_TEST_AGENT_BINARY,
-  timeout: 30_000,
+  timeout: 60_000,
 }, async () => {
   const connectionString = process.env.MESH_TEST_DATABASE_URL;
   const binary = resolve(process.env.MESH_TEST_AGENT_BINARY!);
@@ -45,12 +47,15 @@ test('real agent enrolls, persists sequence across processes/controller restart,
   try {
     await admin.query(`CREATE SCHEMA ${schema}`);
     const initial = new Pool({ connectionString, options: `-c search_path=${schema}` });
-    try { await initial.query(await readFile(resolve(__dirname, '../migrations/001_nodes.sql'), 'utf8')); }
+    try {
+      await initial.query(await readFile(resolve(__dirname, '../migrations/001_nodes.sql'), 'utf8'));
+      await initial.query(await readFile(resolve(__dirname, '../migrations/002_storage_grants.sql'), 'utf8'));
+    }
     finally { await initial.end(); }
     const url = await start();
     const response = await fetch(`${url}/v1/enrollment-tokens`, { method: 'POST', headers });
     assert.equal(response.status, 201);
-    const { enrollmentToken } = await response.json() as { enrollmentToken: string };
+    const { enrollmentToken } = z.object({ enrollmentToken: z.string() }).parse(await response.json());
     const enrolled = await command(['enroll', '--server', url, '--name', 'Integration host', '--token-stdin'], enrollmentToken);
     assert.equal(enrolled.code, 0, enrolled.stderr);
     assert.ok(!enrolled.stdout.includes(enrollmentToken));
@@ -61,7 +66,8 @@ test('real agent enrolls, persists sequence across processes/controller restart,
     const status = JSON.parse((await command(['status'])).stdout);
     assert.equal(status.nextSequence, 2);
     assert.equal(status.credential, undefined);
-    const nodes = await (await fetch(`${url}/v1/nodes`, { headers })).json() as Array<{ id: string; status: string; inventory: { memoryTotalBytes: number } }>;
+    const nodes = z.array(z.object({ id: z.uuid(), status: z.string(), inventory: z.object({ memoryTotalBytes: z.number() }) }))
+      .parse(await (await fetch(`${url}/v1/nodes`, { headers })).json());
     assert.equal(nodes[0]?.id, status.nodeId);
     assert.equal(nodes[0]?.status, 'online');
     assert.ok(nodes[0]!.inventory.memoryTotalBytes > 0);
@@ -73,6 +79,12 @@ test('real agent enrolls, persists sequence across processes/controller restart,
     const beat = await command(['heartbeat']);
     assert.equal(beat.code, 0, beat.stderr);
     assert.equal(JSON.parse((await command(['status'])).stdout).nextSequence, 3);
+    await storageFlow({ binary, directory, nodeId: status.nodeId, url, operatorKey: key,
+      whileControllerOffline: async check => {
+        await app!.close(); app = undefined; pool = undefined;
+        try { await check(); } finally { await start(port); }
+      },
+    });
     assert.equal((await fetch(`${url}/v1/nodes/${status.nodeId}/revoke`, { method: 'POST', headers })).status, 200);
     const revoked = await command(['run']);
     assert.notEqual(revoked.code, 0);

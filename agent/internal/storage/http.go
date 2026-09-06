@@ -1,13 +1,12 @@
 package storage
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 func jsonReply(w http.ResponseWriter, value any) {
@@ -17,6 +16,10 @@ func jsonReply(w http.ResponseWriter, value any) {
 func storageError(w http.ResponseWriter, err error) {
 	code := http.StatusInternalServerError
 	switch {
+	case errors.Is(err, ErrUnauthorized):
+		code = 401
+	case errors.Is(err, ErrAuthorizationUnavailable):
+		code = 503
 	case errors.Is(err, ErrInvalid):
 		code = 400
 	case errors.Is(err, ErrNotFound):
@@ -27,16 +30,39 @@ func storageError(w http.ResponseWriter, err error) {
 	http.Error(w, http.StatusText(code), code)
 }
 
-// Handler uses a separate operator storage key. Node heartbeat credentials are
-// deliberately not accepted here. A future gateway can replace this boundary.
-func Handler(store *Store, key string) http.Handler {
-	expected := sha256.Sum256([]byte("Bearer " + key))
+// AuthorizedHandler checks scope before touching collection state. It does not
+// cache decisions: revocation and expiry apply to each subsequent request.
+func AuthorizedHandler(store *Store, authorize Authorizer) http.Handler {
+	allow := func(w http.ResponseWriter, r *http.Request, access, id string) bool {
+		permission := Permission{Access: access}
+		if access != "list" {
+			if !validID(id) {
+				storageError(w, ErrInvalid)
+				return false
+			}
+			permission.CollectionID = &id
+		}
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if err := authorize(r.Context(), token, permission); err != nil {
+			storageError(w, err)
+			return false
+		}
+		return true
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/collections", func(w http.ResponseWriter, r *http.Request) {
 		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxManifestBytes))
 		var m Manifest
 		if err != nil || decodeManifest(data, &m) != nil {
 			storageError(w, ErrInvalid)
+			return
+		}
+		id, err := m.ID()
+		if err != nil {
+			storageError(w, err)
+			return
+		}
+		if !allow(w, r, "write", id) {
 			return
 		}
 		p, err := store.Begin(r.Context(), m)
@@ -47,6 +73,9 @@ func Handler(store *Store, key string) http.Handler {
 		jsonReply(w, p)
 	})
 	mux.HandleFunc("GET /v1/collections", func(w http.ResponseWriter, r *http.Request) {
+		if !allow(w, r, "list", "") {
+			return
+		}
 		ids, err := store.List(r.Context(), r.URL.Query().Get("after"))
 		if err != nil {
 			storageError(w, err)
@@ -55,6 +84,9 @@ func Handler(store *Store, key string) http.Handler {
 		jsonReply(w, ids)
 	})
 	mux.HandleFunc("GET /v1/collections/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if !allow(w, r, "read", r.PathValue("id")) {
+			return
+		}
 		m, _, err := store.manifest(r.Context(), r.PathValue("id"), true)
 		if err != nil {
 			storageError(w, err)
@@ -63,6 +95,9 @@ func Handler(store *Store, key string) http.Handler {
 		jsonReply(w, m)
 	})
 	mux.HandleFunc("POST /v1/collections/{id}/finish", func(w http.ResponseWriter, r *http.Request) {
+		if !allow(w, r, "write", r.PathValue("id")) {
+			return
+		}
 		p, err := store.Finish(r.Context(), r.PathValue("id"))
 		if err != nil {
 			storageError(w, err)
@@ -75,6 +110,9 @@ func Handler(store *Store, key string) http.Handler {
 		offset, offsetErr := strconv.ParseInt(r.Header.Get("Upload-Offset"), 10, 64)
 		if err != nil || offsetErr != nil {
 			storageError(w, ErrInvalid)
+			return
+		}
+		if !allow(w, r, "write", r.PathValue("id")) {
 			return
 		}
 		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, ChunkSize))
@@ -97,6 +135,9 @@ func Handler(store *Store, key string) http.Handler {
 			storageError(w, ErrInvalid)
 			return
 		}
+		if !allow(w, r, "read", r.PathValue("id")) {
+			return
+		}
 		f, e, err := store.Read(r.Context(), r.PathValue("id"), index)
 		if err != nil {
 			storageError(w, err)
@@ -113,9 +154,9 @@ func Handler(store *Store, key string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		got := sha256.Sum256([]byte(r.Header.Get("Authorization")))
-		if !ValidKey(key) || subtle.ConstantTimeCompare(expected[:], got[:]) != 1 {
-			http.Error(w, "Unauthorized", 401)
+		header := r.Header.Get("Authorization")
+		if !strings.HasPrefix(header, "Bearer ") || !ValidKey(strings.TrimPrefix(header, "Bearer ")) {
+			storageError(w, ErrUnauthorized)
 			return
 		}
 		select {

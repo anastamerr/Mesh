@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -94,5 +95,24 @@ func TestResponseBodyIsNotReflectedInErrors(t *testing.T) {
 	err := client.Heartbeat(context.Background(), "node", "secret", 0, Inventory{})
 	if err == nil || err.Error() != "control plane returned HTTP 401" || !Permanent(err) {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStorageAuthorizationRequiresPositiveAcknowledgement(t *testing.T) {
+	for _, body := range []string{`{}`, `{"accepted":false}`, `invalid`} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "Bearer node-credential" {
+				t.Error("missing node authentication")
+			}
+			_, _ = io.WriteString(w, body)
+		}))
+		client, err := New(server.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = client.AuthorizeStorage(context.Background(), "node", "node-credential", "token", "list", nil); !errors.Is(err, ErrProtocol) {
+			t.Fatal("accepted malformed authorization", err)
+		}
+		server.Close()
 	}
 }

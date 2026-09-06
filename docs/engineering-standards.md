@@ -28,9 +28,14 @@
 
 ## Verification before a commit
 
+- TypeScript/JavaScript: `npm run lint` runs every generic anti-slop rule at error severity across source, tests and scripts. Vendored rule source and generated/agent assets are excluded. Do not disable rules or disguise types to satisfy them; parse external input at the HTTP/JSON boundary, preserve inferred types, and use real typed dependency seams in tests. Any necessary type assertion must explain its checked invariant with a `SAFETY:` comment.
 - TypeScript: strict typecheck (including unused declarations), build, HTTP tests, PostgreSQL integration tests, and the compiled-agent integration test.
 - Go: gofmt, go vet, race tests, host build, and Windows cross-build. CI additionally runs native tests on Linux, macOS, and Windows.
 - Add regression tests for concrete bugs and failure modes. Do not inflate coverage with assertions that merely mirror implementation.
 - Review coverage gaps, but distinguish unit instrumentation from behavior exercised through compiled integration tests. Do not describe cross-compilation as Windows runtime validation.
 - Keep credentials and generated binaries out of Git. Update contracts and architecture notes when guarantees change.
 - Report any checks not run and limitations still present. No claim that a small test suite proves production readiness or optimal performance.
+
+## Anti-slop tooling
+
+Rules are vendored from [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop) under `tools/oxlint/anti-slop`; source revision and license are recorded alongside them. The plugin is development tooling for TypeScript/JavaScript, not a Go analyzer. Keep Oxlint and its plugin runtime pinned together. Effect-specific rules are not enabled because Mesh does not use Effect. CI runs lint before the backend checks.

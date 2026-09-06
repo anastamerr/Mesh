@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { strict as assert } from 'node:assert';
 import { test, TestContext } from 'node:test';
 import { createApp } from '../src/app';
@@ -31,14 +32,14 @@ test('enrollment, credential isolation, monotonic heartbeat, and revocation', as
     const issued = await request({ method: 'POST', url: '/v1/enrollment-tokens', headers: admin });
     assert.equal(issued.statusCode, 201);
     assert.equal(issued.headers['cache-control'], 'no-store');
-    const token = issued.json().enrollmentToken as string;
+    const token = z.string().regex(/^mesh_enroll_[A-Za-z0-9_-]{43}$/).parse(issued.json().enrollmentToken);
     assert.ok(repository.tokens.has(hashToken(token)));
     assert.ok(!repository.tokens.has(token));
     const body = { enrollmentToken: token, name, platform: 'windows', architecture: 'amd64', agentVersion: '0.1.0-dev' };
     const enrolled = await request({ method: 'POST', url: '/v1/nodes/enroll', payload: body });
     assert.equal(enrolled.statusCode, 201);
     assert.equal((await request({ method: 'POST', url: '/v1/nodes/enroll', payload: body })).statusCode, 401);
-    return enrolled.json() as { node: { id: string }; nodeCredential: string };
+    return z.object({ node: z.object({ id: z.uuid() }), nodeCredential: z.string() }).parse(enrolled.json());
   }
   const first = await enroll('Lenovo');
   const second = await enroll('Another node');
@@ -92,4 +93,46 @@ test('stale observations become unreachable and readiness differs from liveness'
   repository.available = false;
   assert.equal((await request({ method: 'GET', url: '/health/live' })).statusCode, 200);
   assert.equal((await request({ method: 'GET', url: '/health/ready' })).statusCode, 503);
+});
+
+test('storage grants isolate nodes, collections, access and expiration', async t => {
+  const { request, repository } = await setup(t);
+  async function enroll() {
+    const issued = await request({ method: 'POST', url: '/v1/enrollment-tokens', headers: admin });
+    const enrolled = await request({ method: 'POST', url: '/v1/nodes/enroll', payload: {
+      enrollmentToken: issued.json().enrollmentToken, name: 'Storage host', platform: 'windows', architecture: 'amd64', agentVersion: 'dev',
+    } });
+    return z.object({ node: z.object({ id: z.uuid() }), nodeCredential: z.string() }).parse(enrolled.json());
+  }
+  const first = await enroll(), second = await enroll();
+  const url = `/v1/nodes/${first.node.id}/storage-grants`;
+  const permission = { access: 'write', collectionId: 'a'.repeat(64) };
+  assert.equal((await request({ method: 'POST', url, payload: permission })).statusCode, 401);
+  assert.equal((await request({ method: 'POST', url, headers: { authorization: `Bearer ${first.nodeCredential}` }, payload: permission })).statusCode, 401);
+  for (const payload of [{ access: 'write', collectionId: null }, { access: 'list', collectionId: permission.collectionId },
+    { ...permission, nodeId: second.node.id }, { access: 'delete', collectionId: permission.collectionId }]) {
+    assert.equal((await request({ method: 'POST', url, headers: admin, payload })).statusCode, 400);
+  }
+  const issued = await request({ method: 'POST', url, headers: admin, payload: permission });
+  assert.equal(issued.statusCode, 201);
+  const token = z.string().regex(/^[A-Za-z0-9_-]{43}$/).parse(issued.json().token);
+  assert.ok(repository.grants.has(hashToken(token)) && !repository.grants.has(token));
+  async function validate(node = first, scope = permission, credential = node.nodeCredential) {
+    return request({ method: 'POST', url: `/v1/nodes/${node.node.id}/storage-grants/validate`,
+      headers: { authorization: `Bearer ${credential}` }, payload: { token, permission: scope } });
+  }
+  assert.equal((await validate()).statusCode, 200);
+  assert.equal((await validate(second)).statusCode, 401);
+  assert.equal((await validate(first, permission, second.nodeCredential)).statusCode, 401);
+  assert.equal((await validate(first, { ...permission, access: 'read' })).statusCode, 401);
+  assert.equal((await validate(first, { ...permission, collectionId: 'b'.repeat(64) })).statusCode, 401);
+  repository.grants.get(hashToken(token))!.expiresAt = new Date(0);
+  assert.equal((await validate()).statusCode, 401);
+  repository.grants.get(hashToken(token))!.expiresAt = new Date(Date.now() + 60_000);
+  repository.nodes.get(first.node.id)!.expires = new Date(0);
+  assert.equal((await validate()).statusCode, 401);
+  repository.nodes.get(first.node.id)!.expires = new Date(Date.now() + 60_000);
+  await repository.revoke(first.node.id);
+  assert.equal((await validate()).statusCode, 401);
+  assert.equal((await request({ method: 'POST', url, headers: admin, payload: permission })).statusCode, 401);
 });

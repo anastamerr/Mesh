@@ -44,3 +44,5 @@ Send every 15 seconds as an initial client policy. Increase and persist the sequ
 ## Native storage data API
 
 The separate agent endpoint is documented in [ADR 0003](../docs/decisions/0003-native-storage.md), including manifest, chunk, authorization, recovery and publication semantics. It does not run on the control-plane port.
+
+Controller-issued transfer grants and enrolled agent validation are defined in [ADR 0004](../docs/decisions/0004-storage-authorization.md).

@@ -1,8 +1,10 @@
+import { StoragePermission } from '../src/storage/contracts';
+import { StorageGrantRepository } from '../src/storage/repository';
 import { randomUUID } from 'node:crypto';
 import { Enrollment, Heartbeat } from '../src/nodes/contracts';
 import { NodeRecord, NodeRepository } from '../src/nodes/repository';
 
-export class MemoryRepository implements NodeRepository {
+export class MemoryRepository implements NodeRepository, StorageGrantRepository {
   tokens = new Map<string, Date>();
   nodes = new Map<string, NodeRecord & { hash: string; expires: Date; sequence: number }>();
   available = true;
@@ -41,6 +43,20 @@ export class MemoryRepository implements NodeRepository {
     if (!node) return false;
     node.revokedAt ??= new Date();
     return true;
+  }
+  grants = new Map<string, { nodeId: string; permission: StoragePermission; expiresAt: Date }>();
+  async createStorageGrant(nodeId: string, hash: string, permission: StoragePermission, expiresAt: Date) {
+    const node = this.nodes.get(nodeId);
+    if (!node || node.revokedAt || node.expires.getTime() <= Date.now()) return false;
+    for (const [key, grant] of this.grants) if (grant.expiresAt.getTime() <= Date.now()) this.grants.delete(key);
+    this.grants.set(hash, { nodeId, permission, expiresAt });
+    return true;
+  }
+  async validateStorageGrant(nodeId: string, nodeHash: string, grantHash: string, permission: StoragePermission) {
+    const node = this.nodes.get(nodeId), grant = this.grants.get(grantHash);
+    return Boolean(this.available && node && node.hash === nodeHash && !node.revokedAt && node.expires.getTime() > Date.now()
+      && grant && grant.nodeId === nodeId && grant.expiresAt.getTime() > Date.now()
+      && grant.permission.access === permission.access && grant.permission.collectionId === permission.collectionId);
   }
   async ready() { return this.available; }
 }

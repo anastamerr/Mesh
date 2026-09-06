@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Headers, HttpCode, Inject, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import type { FastifyRequest } from 'fastify';
+import { parseBody } from '../http/parse-body';
+import { Req, Controller, Get, Headers, HttpCode, Inject, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../auth/admin.guard';
 import { bearer } from '../auth/tokens';
-import { enrollSchema, heartbeatSchema, parse } from './contracts';
+import { enrollSchema, heartbeatSchema } from './contracts';
 import { NodesService } from './nodes.service';
 
 @Controller('v1')
@@ -13,7 +15,7 @@ export class NodesController {
   createEnrollment() { return this.nodes.createEnrollment(); }
 
   @Post('nodes/enroll')
-  enroll(@Body() body: unknown) { return this.nodes.enroll(parse(enrollSchema, body)); }
+  enroll(@Req() request: FastifyRequest) { return this.nodes.enroll(parseBody(enrollSchema, request)); }
 
   @Get('nodes')
   @UseGuards(AdminGuard)
@@ -22,8 +24,8 @@ export class NodesController {
   @Post('nodes/:id/heartbeat')
   @HttpCode(200)
   heartbeat(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
-    @Headers('authorization') authorization: string | undefined, @Body() body: unknown) {
-    return this.nodes.heartbeat(id, bearer(authorization), parse(heartbeatSchema, body));
+    @Headers('authorization') authorization: string | undefined, @Req() request: FastifyRequest) {
+    return this.nodes.heartbeat(id, bearer(authorization), parseBody(heartbeatSchema, request));
   }
 
   @Post('nodes/:id/revoke')

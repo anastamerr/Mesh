@@ -42,7 +42,7 @@ Every stateful command accepts `--state-dir` for isolated identities. The defaul
 
 Tests cover these contracts; Windows DPAPI/service behavior still needs actual Windows validation. CI includes Windows, macOS, and Linux tests. The module name is intentionally local until the repository's public location is decided.
 
-Next: controller-authorized storage routing, Windows service lifecycle validation, then a separately authenticated WSL executor.
+Next: central collection metadata and gateway routing, Windows service lifecycle validation, then a separately authenticated WSL executor.
 
 ## Copy folders with native storage
 
@@ -65,6 +65,8 @@ bin/mesh-agent storage download --server http://127.0.0.1:7332 --key-file "$HOME
 
 Upload prints the collection ID. Stop and restart the storage server, then repeat the same upload command to resume. Completed files live under `<root>/collections/<id>/` as ordinary files. `list --after COLLECTION_ID` retrieves the next page after a 100-item page. Downloads require a destination that does not exist.
 
-For another machine, securely provision the same storage key on the client and configure `serve --listen <address>:7332 --tls-cert <certificate.pem> --tls-key <private-key.pem>`. Use an HTTPS URL whose hostname matches a certificate trusted by the client. There is no certificate-verification bypass. Windows uses the same agent commands; provision private directory/key ACLs for the serving account.
+For controller-authorized storage, use `storage serve --enrolled --root <directory>` and obtain separate read/write/list grants. See [the complete enrollment and transfer workflow](../docs/decisions/0004-storage-authorization.md). `storage identify --source <folder>` prints the collection ID needed for a write grant.
 
-This is a direct storage connection, separate from enrollment/heartbeats. A node's control-plane revocation does not yet disable its storage key. Keep the listener on loopback for the local demo; controller-issued permissions and gateway routing are the next integration step. Read [the storage contract and limitations](../docs/decisions/0003-native-storage.md) before using it across machines.
+The key-based demo above is restricted to loopback. For another machine, use enrolled serving with `--listen <address>:7332 --tls-cert <certificate.pem> --tls-key <private-key.pem>` and a client HTTPS URL matching a trusted certificate. There is no certificate-verification bypass. Windows uses the same commands; directory/key ACL provisioning and runtime validation remain pending.
+
+Enrolled serving validates each request with the controller and honors grant expiry and node revocation on subsequent requests. Controller outages fail closed. Requests already authorized may finish. The local shared-key mode remains independent of controller authorization.

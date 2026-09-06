@@ -10,13 +10,13 @@ Follow [the engineering standards](docs/engineering-standards.md) for modularity
 
 Backend and first working native-agent slice. Implemented: PostgreSQL migrations, operator-authorized enrollment token creation, atomic one-use node enrollment, hashed expiring node credentials, validated heartbeats, observed presence, listing, revocation, and persisted lifecycle audit events.
 
-The Go agent enrolls, stores its identity, reports real CPU/RAM inventory, and sends heartbeats with durable sequences and reconnect backoff. The Linux executor remains a skeleton. Native storage now supports direct authenticated folder uploads, durable resumption, checksum verification, listing and retrieval. Its separate storage key is not yet integrated with controller authorization. No Windows service, WSL provisioning, Docker execution, remote tunnel, accounts, or UI exists yet. See [agent commands and guarantees](agent/README.md).
+The Go agent enrolls, stores its identity, reports real CPU/RAM inventory, and sends heartbeats with durable sequences and reconnect backoff. The Linux executor remains a skeleton. Native storage now supports direct authenticated folder uploads, durable resumption, checksum verification, listing and retrieval. Enrolled storage validates short-lived, node/collection-scoped permissions with the controller on every request; shared storage keys are loopback-only development mode. See [the authorized storage workflow](docs/decisions/0004-storage-authorization.md). No Windows service, WSL provisioning, Docker execution, remote tunnel, accounts, or UI exists yet. See [agent commands and guarantees](agent/README.md).
 
 ## Local setup
 
 For the user-local Go/PostgreSQL installation on the development Mac, see [local development instructions](docs/local-development.md). That installation can be used instead of the Compose database below.
 
-Prerequisites: Node.js 22+, npm, Docker Compose (or a PostgreSQL 17 database). Go 1.25+ is needed for the native agent.
+Prerequisites: Node.js 22.18+, npm, Docker Compose (or a PostgreSQL 17 database). Go 1.25+ is needed for the native agent.
 
 ```sh
 npm install
@@ -44,6 +44,7 @@ The Compose password is local development only and PostgreSQL is bound to loopba
 ## Verify
 
 ```sh
+npm run lint
 npm run typecheck
 npm test
 npm run build

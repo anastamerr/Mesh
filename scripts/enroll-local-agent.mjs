@@ -1,3 +1,4 @@
+import { z } from 'zod';
 // Development-only bridge: keeps the operator key and enrollment token out of
 // shell arguments/history. The native agent never receives the operator key.
 import { spawn } from 'node:child_process';
@@ -22,10 +23,10 @@ async function main() {
     signal: AbortSignal.timeout(10_000), redirect: 'error',
   });
   if (!response.ok) throw new Error(`Token creation failed: HTTP ${response.status}.`);
-  const { enrollmentToken } = await response.json();
-  if (typeof enrollmentToken !== 'string' || !/^mesh_enroll_[A-Za-z0-9_-]{43}$/.test(enrollmentToken)) {
-    throw new Error('Invalid enrollment response.');
-  }
+  const parsed = z.object({ enrollmentToken: z.string().regex(/^mesh_enroll_[A-Za-z0-9_-]{43}$/) })
+    .safeParse(await response.json());
+  if (!parsed.success) throw new Error('Invalid enrollment response.');
+  const { enrollmentToken } = parsed.data;
   const args = ['enroll', '--server', server, '--name', values.name, '--token-stdin'];
   if (values['state-dir']) args.push('--state-dir', values['state-dir']);
   const env = { ...process.env };

@@ -1,6 +1,6 @@
 # ADR 0003: Native folder copies and a local transfer journal
 
-Status: implemented first storage slice.
+Status: implemented first storage slice. Authorization is extended by [ADR 0004](0004-storage-authorization.md); the shared-key mode described below is now restricted to loopback.
 
 ## Boundary
 
@@ -8,7 +8,7 @@ The native agent owns bulk data and exposes a small HTTP data API. The NestJS co
 
 This slice uses a separate random storage key, read from a private file. It grants full access to this one storage root. It is not the operator API key or a node heartbeat credential. Control-plane revocation therefore does **not** revoke storage access. Stop the storage listener to disable access; replace its key and restart to rotate access. Before remote gateway integration, replace this bootstrap mechanism with controller-issued, short-lived, collection-scoped authorization that honors node revocation.
 
-HTTP is accepted only on loopback. Other listeners require a TLS certificate and private key. Clients verify certificates through the OS trust store and refuse redirects. There is no public tunnel, NAT traversal, account system, or discovery yet.
+HTTP is accepted only on loopback. Other listeners require enrolled authorization (ADR 0004), a TLS certificate and private key. Clients verify certificates through the OS trust store and refuse redirects. There is no public tunnel, NAT traversal, account system, or discovery yet.
 
 ## Model
 

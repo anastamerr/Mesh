@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
 
 export const enrollSchema = z.object({
@@ -21,10 +20,3 @@ export const heartbeatSchema = z.object({
 
 export type Enrollment = z.infer<typeof enrollSchema>;
 export type Heartbeat = z.infer<typeof heartbeatSchema>;
-
-export function parse<T>(schema: z.ZodType<T>, value: unknown): T {
-  const result = schema.safeParse(value);
-  if (!result.success) throw new BadRequestException({ message: 'Invalid request',
-    issues: result.error.issues.map(i => ({ path: i.path.join('.'), message: i.message })) });
-  return result.data;
-}

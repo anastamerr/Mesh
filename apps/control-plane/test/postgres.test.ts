@@ -19,6 +19,7 @@ test('PostgreSQL atomically consumes enrollment and serializes heartbeats/revoca
     await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
     await pool.query(await readFile(resolve(__dirname, '../migrations/001_nodes.sql'), 'utf8'));
+    await pool.query(await readFile(resolve(__dirname, '../migrations/002_storage_grants.sql'), 'utf8'));
     const repository = new PostgresNodeRepository(pool);
     await repository.createEnrollment('enrollment-hash', new Date(Date.now() + 60_000));
     const input = { enrollmentToken: 'unused', name: 'Lenovo', platform: 'windows' as const,
@@ -42,6 +43,20 @@ test('PostgreSQL atomically consumes enrollment and serializes heartbeats/revoca
     await Promise.all([1, 8, 3, 6].map(sequence => repository.heartbeat(node.id, hash, { ...heartbeat, sequence })));
     assert.equal((await pool.query('SELECT heartbeat_sequence FROM nodes WHERE id = $1', [node.id])).rows[0].heartbeat_sequence, '8');
     assert.equal(await repository.heartbeat(node.id, 'wrong', { ...heartbeat, sequence: 1 }), 'unauthorized');
+    const permission = { access: 'write' as const, collectionId: 'a'.repeat(64) };
+    assert.equal(await repository.createStorageGrant(node.id, 'grant-hash', permission, new Date(Date.now() + 60_000)), true);
+    assert.equal(await repository.validateStorageGrant(node.id, hash, 'grant-hash', permission), true);
+    assert.equal(await repository.validateStorageGrant(node.id, 'wrong', 'grant-hash', permission), false);
+    assert.equal(await repository.validateStorageGrant(node.id, hash, 'grant-hash', { access: 'read', collectionId: permission.collectionId }), false);
+    await pool.query("UPDATE storage_grants SET expires_at=now()-interval '1 second' WHERE token_hash='grant-hash'");
+    assert.equal(await repository.validateStorageGrant(node.id, hash, 'grant-hash', permission), false);
+    // Issuance may win the lock first, but no grant validates after revocation commits.
+    await Promise.all([
+      repository.createStorageGrant(node.id, 'racing-grant', permission, new Date(Date.now() + 60_000)),
+      repository.revoke(node.id),
+    ]);
+    assert.equal(await repository.validateStorageGrant(node.id, hash, 'racing-grant', permission), false);
+    assert.equal(await repository.createStorageGrant(node.id, 'after-revoke', permission, new Date(Date.now() + 60_000)), false);
     await Promise.all([repository.revoke(node.id), repository.revoke(node.id)]);
     assert.equal((await pool.query("SELECT count(*) FROM audit_events WHERE action = 'node.revoked' AND node_id = $1", [node.id])).rows[0].count, '1');
     assert.equal(await repository.heartbeat(node.id, hash, { ...heartbeat, sequence: 1 }), 'unauthorized');
