@@ -23,7 +23,7 @@ type Authorizer func(context.Context, string, Permission) error
 // Handler is the loopback development mode. Enrolled serving uses
 // AuthorizedHandler with controller validation instead of a shared root key.
 func Handler(store *Store, key string) http.Handler {
-	return AuthorizedHandler(store, LocalAuthorizer(key))
+	return AuthorizedHandler(store, LocalAuthorizer(key), nil)
 }
 
 func LocalAuthorizer(key string) Authorizer {

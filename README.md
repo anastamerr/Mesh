@@ -12,6 +12,18 @@ Backend and first working native-agent slice. Implemented: PostgreSQL migrations
 
 The Go agent enrolls, stores its identity, reports real CPU/RAM inventory, and sends heartbeats with durable sequences and reconnect backoff. The Linux executor remains a skeleton. Native storage now supports direct authenticated folder uploads, durable resumption, checksum verification, listing and retrieval. Enrolled storage validates short-lived, node/collection-scoped permissions with the controller on every request; shared storage keys are loopback-only development mode. See [the authorized storage workflow](docs/decisions/0004-storage-authorization.md). No Windows service, WSL provisioning, Docker execution, remote tunnel, accounts, or UI exists yet. See [agent commands and guarantees](agent/README.md).
 
+## Copy and retrieve folders
+
+After enrollment and enrolled storage startup:
+
+```sh
+npm run mesh -- copy --node Lenovo --source /absolute/path/to/Photos
+npm run mesh -- catalog --node Lenovo
+npm run mesh -- get --node Lenovo --collection Photos --destination /absolute/path/to/RestoredPhotos
+```
+
+The managed commands obtain grants in memory, show progress, and resume copies when rerun. See [the catalogue workflow and guarantees](docs/decisions/0005-collection-workflow.md). `npm run test:live` runs the real-process experience check against an isolated schema in the configured test database.
+
 ## Local setup
 
 For the user-local Go/PostgreSQL installation on the development Mac, see [local development instructions](docs/local-development.md). That installation can be used instead of the Compose database below.

@@ -8,6 +8,8 @@
     "node": ">=22.18.0"
   },
   "scripts": {
+    "test:live": "npm run test:live --workspace @mesh/control-plane",
+    "mesh": "node --env-file=apps/control-plane/.env scripts/mesh-local.mjs",
     "lint": "oxlint . --deny-warnings",
     "agent:enroll": "node --env-file=apps/control-plane/.env scripts/enroll-local-agent.mjs",
     "dev": "npm run dev --workspace @mesh/control-plane",

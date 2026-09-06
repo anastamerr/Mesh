@@ -468,3 +468,32 @@ func TestFinalizationDetectsMissingEmptyDirectoryDuringRecovery(t *testing.T) {
 		t.Fatal("published incomplete recovered tree")
 	}
 }
+
+func TestManifestCacheNeverCachesPublicationState(t *testing.T) {
+	s := openStore(t, privateDir(t))
+	defer s.Close()
+	first := Manifest{Version: 1, Entries: []Entry{entry("first", []byte("a"))}}
+	p := begin(t, s, first)
+	if _, complete, err := s.manifest(testContext, p.ID, false); err != nil || complete {
+		t.Fatal(complete, err)
+	}
+	write(t, s, p.ID, 0, 0, []byte("a"))
+	if _, err := s.Finish(testContext, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, complete, err := s.manifest(testContext, p.ID, true); err != nil || !complete {
+		t.Fatal("cached stale publication state", complete, err)
+	}
+	second := Manifest{Version: 1, Entries: []Entry{entry("second", []byte("b"))}}
+	next := begin(t, s, second)
+	if _, _, err := s.manifest(testContext, next.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if s.cachedID != next.ID {
+		t.Fatal("cache did not replace its single entry")
+	}
+	m, _, err := s.manifest(testContext, p.ID, true)
+	if err != nil || m.Entries[0].Path != "first" {
+		t.Fatal("wrong manifest after cache replacement", err)
+	}
+}

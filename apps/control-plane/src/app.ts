@@ -1,5 +1,6 @@
 import 'reflect-metadata';
-import { STORAGE_GRANTS, StorageGrantRepository } from './storage/repository';
+import { CollectionsController } from './storage/collections.controller';
+import { STORAGE_REPOSITORY, StorageRepository } from './storage/repository';
 import { StorageController } from './storage/storage.controller';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -13,13 +14,13 @@ import { NodesController } from './nodes/nodes.controller';
 import { NodesService } from './nodes/nodes.service';
 import { NODE_REPOSITORY, NodeRepository } from './nodes/repository';
 
-export async function createApp(config: Config, repository?: NodeRepository & StorageGrantRepository) {
+export async function createApp(config: Config, repository?: NodeRepository & StorageRepository) {
   @Module({
-    controllers: [HealthController, NodesController, StorageController],
+    controllers: [HealthController, NodesController, StorageController, CollectionsController],
     providers: [
       { provide: CONFIG, useValue: config },
       { provide: NODE_REPOSITORY, useFactory: () => repository ?? new PostgresNodeRepository(createPool(config.databaseUrl)) },
-      { provide: STORAGE_GRANTS, useExisting: NODE_REPOSITORY },
+      { provide: STORAGE_REPOSITORY, useExisting: NODE_REPOSITORY },
       AdminGuard, NodesService,
     ],
   })

@@ -17,10 +17,15 @@ import (
 )
 
 type Store struct {
-	mu   sync.Mutex
-	root *os.Root
-	db   *sql.DB
-	lock *flock.Flock
+	// Manifests are immutable by content ID. Keep only the most recently read
+	// manifest; authorization and publication state are never cached.
+	manifestMu     sync.Mutex
+	cachedID       string
+	cachedManifest Manifest
+	mu             sync.Mutex
+	root           *os.Root
+	db             *sql.DB
+	lock           *flock.Flock
 }
 
 // Open requires a dedicated directory owned by the agent account. SQLite and
@@ -164,21 +169,30 @@ func (s *Store) Begin(ctx context.Context, m Manifest) (Progress, error) {
 }
 func (s *Store) manifest(ctx context.Context, id string, published bool) (Manifest, bool, error) {
 	var m Manifest
-	var data []byte
 	var complete bool
 	if !validID(id) {
 		return m, false, ErrInvalid
 	}
-	err := s.db.QueryRowContext(ctx, "SELECT manifest,complete FROM collections WHERE id=?", id).Scan(&data, &complete)
+	err := s.db.QueryRowContext(ctx, "SELECT complete FROM collections WHERE id=?", id).Scan(&complete)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && published && !complete) {
 		return m, false, ErrNotFound
 	}
 	if err != nil {
 		return m, false, err
 	}
+	s.manifestMu.Lock()
+	defer s.manifestMu.Unlock()
+	if s.cachedID == id {
+		return s.cachedManifest, complete, nil
+	}
+	var data []byte
+	if err = s.db.QueryRowContext(ctx, "SELECT manifest FROM collections WHERE id=?", id).Scan(&data); err != nil {
+		return m, false, err
+	}
 	if err = decodeManifest(data, &m); err != nil {
 		return m, false, fmt.Errorf("corrupt collection journal: %w", err)
 	}
+	s.cachedID, s.cachedManifest = id, m
 	return m, complete, nil
 }
 func (s *Store) progress(ctx context.Context, id string, m Manifest, complete bool) (Progress, error) {

@@ -21,15 +21,16 @@ func validateProgress(p Progress, m Manifest, id string) error {
 	return nil
 }
 func (c *Client) Upload(ctx context.Context, source string) (string, error) {
-	root, err := os.OpenRoot(source)
+	c.progress(TransferEvent{Phase: "Scanning"})
+	folder, err := Prepare(ctx, source)
 	if err != nil {
 		return "", err
 	}
-	defer root.Close()
-	m, err := Scan(ctx, root)
-	if err != nil {
-		return "", err
-	}
+	defer folder.Close()
+	return c.UploadPrepared(ctx, folder)
+}
+func (c *Client) UploadPrepared(ctx context.Context, folder *PreparedFolder) (string, error) {
+	root, m := folder.Root, folder.Manifest
 	_, id, err := m.encoded()
 	if err != nil {
 		return "", err
@@ -41,9 +42,13 @@ func (c *Client) Upload(ctx context.Context, source string) (string, error) {
 	if err = validateProgress(p, m, id); err != nil {
 		return "", err
 	}
-	if p.Complete {
-		return id, nil
+	_, total := m.Statistics()
+	var completed int64
+	for _, offset := range p.Offsets {
+		completed += offset
 	}
+	reused := completed
+	c.progress(TransferEvent{Phase: "Uploading", Completed: completed, Total: total, Reused: reused})
 	buffer := make([]byte, ChunkSize)
 	for i, e := range m.Entries {
 		if e.Directory || p.Offsets[i] == e.Size {
@@ -53,12 +58,16 @@ func (c *Client) Upload(ctx context.Context, source string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		err = c.uploadFile(ctx, id, i, f, e.Size, p.Offsets[i], buffer)
+		err = c.uploadFile(ctx, id, i, f, e.Size, p.Offsets[i], buffer, func(n int64) {
+			completed += n
+			c.progress(TransferEvent{Phase: "Uploading", Completed: completed, Total: total, Reused: reused})
+		})
 		err = errors.Join(err, f.Close())
 		if err != nil {
 			return "", err
 		}
 	}
+	c.progress(TransferEvent{Phase: "Verifying", Completed: completed, Total: total, Reused: reused})
 	if err = c.json(ctx, "POST", "/v1/collections/"+id+"/finish", nil, &p); err != nil {
 		return "", err
 	}
@@ -68,9 +77,17 @@ func (c *Client) Upload(ctx context.Context, source string) (string, error) {
 	if !p.Complete {
 		return "", ErrConflict
 	}
+	c.progress(TransferEvent{Phase: "Complete", Completed: total, Total: total, Reused: reused})
 	return id, nil
 }
-func (c *Client) uploadFile(ctx context.Context, id string, index int, f *os.File, size, offset int64, buffer []byte) error {
+func (c *Client) uploadFile(ctx context.Context, id string, index int, f *os.File, size, offset int64, buffer []byte, progress func(int64)) error {
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Size() != size {
+		return errors.New("source size changed; retry to scan a fresh copy")
+	}
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		return err
 	}
@@ -95,6 +112,7 @@ func (c *Client) uploadFile(ctx context.Context, id string, index int, f *os.Fil
 			return errors.New("invalid upload acknowledgement")
 		}
 		offset += n
+		progress(n)
 	}
 	return nil
 }

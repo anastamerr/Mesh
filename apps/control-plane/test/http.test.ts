@@ -136,3 +136,28 @@ test('storage grants isolate nodes, collections, access and expiration', async t
   assert.equal((await validate()).statusCode, 401);
   assert.equal((await request({ method: 'POST', url, headers: admin, payload: permission })).statusCode, 401);
 });
+
+test('catalogue distinguishes requested copies from authenticated agent confirmations', async t => {
+  const { request, repository } = await setup(t);
+  const issued = await request({ method: 'POST', url: '/v1/enrollment-tokens', headers: admin });
+  const enrollment = await request({ method: 'POST', url: '/v1/nodes/enroll', payload: {
+    enrollmentToken: issued.json().enrollmentToken, name: 'Catalogue node', platform: 'windows', architecture: 'amd64', agentVersion: 'dev',
+  } });
+  const node = z.object({ node: z.object({ id: z.uuid() }), nodeCredential: z.string() }).parse(enrollment.json());
+  const url = `/v1/nodes/${node.node.id}/collections`;
+  const entry = { id: 'a'.repeat(64), name: 'My folder', fileCount: 2, totalBytes: 1234 };
+  assert.equal((await request({ method: 'POST', url, headers: admin, payload: entry })).statusCode, 201);
+  const pending = await request({ method: 'GET', url, headers: admin });
+  assert.equal(pending.json()[0].confirmedAt, null);
+  const statistics = { id: entry.id, fileCount: entry.fileCount, totalBytes: entry.totalBytes };
+  assert.equal((await request({ method: 'POST', url: `${url}/confirm`, headers: admin, payload: statistics })).statusCode, 401);
+  const nodeHeaders = { authorization: `Bearer ${node.nodeCredential}` };
+  assert.equal((await request({ method: 'POST', url: `${url}/confirm`, headers: nodeHeaders, payload: statistics })).statusCode, 200);
+  assert.equal((await request({ method: 'POST', url, headers: admin, payload: { ...entry, name: 'Renamed' } })).statusCode, 201);
+  const confirmed = (await request({ method: 'GET', url, headers: admin })).json()[0];
+  assert.equal(confirmed.name, 'Renamed'); assert.ok(confirmed.confirmedAt);
+  assert.equal((await request({ method: 'GET', url: `${url}?after=invalid`, headers: admin })).statusCode, 400);
+  await repository.revoke(node.node.id);
+  assert.equal((await request({ method: 'POST', url: `${url}/confirm`, headers: nodeHeaders, payload: statistics })).statusCode, 401);
+  assert.equal((await request({ method: 'GET', url, headers: admin })).json()[0].name, 'Renamed');
+});

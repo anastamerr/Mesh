@@ -13,7 +13,7 @@ import (
 	"mesh.local/agent/internal/storage"
 )
 
-func serveStorage(ctx context.Context, o storageOptions, authorize storage.Authorizer, logs io.Writer) (err error) {
+func serveStorage(ctx context.Context, o storageOptions, authorize storage.Authorizer, logs io.Writer, report storage.PublicationReporter) (err error) {
 	var certificate tls.Certificate
 	if o.cert != "" {
 		certificate, err = tls.LoadX509KeyPair(o.cert, o.key)
@@ -30,7 +30,7 @@ func serveStorage(ctx context.Context, o storageOptions, authorize storage.Autho
 	if err != nil {
 		return err
 	}
-	server := &http.Server{Handler: storage.AuthorizedHandler(store, authorize), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 2 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 8192}
+	server := &http.Server{Handler: storage.AuthorizedHandler(store, authorize, report), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 2 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 8192}
 	if o.cert != "" {
 		listener = tls.NewListener(listener, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}})
 	}

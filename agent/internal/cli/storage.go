@@ -18,7 +18,10 @@ import (
 	"mesh.local/agent/internal/storage"
 )
 
-func executeStorage(ctx context.Context, args []string, output, logs io.Writer) error {
+func executeStorage(ctx context.Context, args []string, input io.Reader, output, logs io.Writer) error {
+	if len(args) > 0 && (args[0] == "copy" || args[0] == "get" || args[0] == "catalog") {
+		return managedStorage(ctx, args, input, output, logs)
+	}
 	o, err := parseStorage(args, logs)
 	if errors.Is(err, flag.ErrHelp) {
 		return nil
@@ -66,14 +69,17 @@ func executeStorage(ctx context.Context, args []string, output, logs io.Writer) 
 			}
 			return storage.ErrAuthorizationUnavailable
 		}
-		return serveStorage(ctx, o, authorize, logs)
+		return serveStorage(ctx, o, authorize, logs, func(ctx context.Context, id string, m storage.Manifest) error {
+			count, total := m.Statistics()
+			return client.ConfirmCollection(ctx, saved.NodeID, saved.Credential, id, count, total)
+		})
 	}
 	key, err := readStorageKey(o.keyFile)
 	if err != nil {
 		return err
 	}
 	if o.command == "serve" {
-		return serveStorage(ctx, o, storage.LocalAuthorizer(key), logs)
+		return serveStorage(ctx, o, storage.LocalAuthorizer(key), logs, nil)
 	}
 	client, err := storage.NewClient(o.server, key)
 	if err != nil {

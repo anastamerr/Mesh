@@ -1,5 +1,6 @@
 import { StoragePermission } from '../storage/contracts';
-import { StorageGrantRepository } from '../storage/repository';
+import type { CollectionRegistration, CollectionStatistics } from '../storage/collection.contracts';
+import { CollectionRecord, StorageRepository } from '../storage/repository';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { transaction } from './connection';
@@ -9,7 +10,7 @@ import { NodeRecord, NodeRepository } from '../nodes/repository';
 const publicColumns = `id, name, platform, architecture, agent_version AS "agentVersion",
   created_at AS "createdAt", last_seen_at AS "lastSeenAt", revoked_at AS "revokedAt", inventory`;
 
-export class PostgresNodeRepository implements NodeRepository, StorageGrantRepository {
+export class PostgresNodeRepository implements NodeRepository, StorageRepository {
   constructor(private readonly pool: Pool) {}
 
   async createEnrollment(hash: string, expiresAt: Date): Promise<void> {
@@ -90,8 +91,33 @@ export class PostgresNodeRepository implements NodeRepository, StorageGrantRepos
     return Boolean(result.rowCount);
   }
 
+  async registerCollection(nodeId: string, input: CollectionRegistration): Promise<boolean> {
+    const result = await this.pool.query(`INSERT INTO collections(node_id,id,name,file_count,total_bytes)
+      SELECT id,$2,$3,$4,$5 FROM nodes WHERE id=$1 AND revoked_at IS NULL AND credential_expires_at > now()
+      ON CONFLICT(node_id,id) DO UPDATE SET name=EXCLUDED.name RETURNING id`,
+      [nodeId, input.id, input.name, input.fileCount, input.totalBytes]);
+    return Boolean(result.rowCount);
+  }
+
+  async confirmCollection(nodeId: string, nodeHash: string, input: CollectionStatistics): Promise<boolean> {
+    const result = await this.pool.query(`INSERT INTO collections(node_id,id,name,file_count,total_bytes,confirmed_at)
+      SELECT id,$3,$3,$4,$5,clock_timestamp() FROM nodes WHERE id=$1 AND credential_hash=$2
+        AND revoked_at IS NULL AND credential_expires_at > now()
+      ON CONFLICT(node_id,id) DO UPDATE SET file_count=EXCLUDED.file_count,total_bytes=EXCLUDED.total_bytes,
+        confirmed_at=EXCLUDED.confirmed_at RETURNING id`, [nodeId, nodeHash, input.id, input.fileCount, input.totalBytes]);
+    return Boolean(result.rowCount);
+  }
+
+  async listCollections(nodeId: string, after: string): Promise<CollectionRecord[]> {
+    const result = await this.pool.query<CollectionRecord>(`SELECT id,name,file_count AS "fileCount",
+      total_bytes::float8 AS "totalBytes",confirmed_at AS "confirmedAt" FROM collections
+      WHERE node_id=$1 AND id>$2 ORDER BY id LIMIT 100`, [nodeId, after]);
+    return result.rows;
+  }
+
   async ready(): Promise<boolean> {
     try {
+      await this.pool.query('SELECT id FROM collections LIMIT 0');
       await this.pool.query('SELECT n.id, n.credential_hash, n.inventory, g.token_hash FROM nodes n LEFT JOIN storage_grants g ON g.node_id=n.id LIMIT 0');
       return true;
     } catch { return false; }

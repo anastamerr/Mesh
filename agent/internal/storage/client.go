@@ -15,9 +15,13 @@ import (
 	"time"
 )
 
+// Client owns the credentials and progress callback for a sequential transfer.
+// Use separate clients for concurrent transfers.
 type Client struct {
-	base, key string
-	http      *http.Client
+	Progress        func(TransferEvent)
+	RenewCredential func(context.Context) (string, error)
+	base, key       string
+	http            *http.Client
 }
 
 func NewClient(server, key string) (*Client, error) {
@@ -57,11 +61,33 @@ func (c *Client) request(ctx context.Context, method, path string, body io.Reade
 		req.Header.Set("Content-Type", "application/json")
 	}
 	res, err := c.http.Do(req)
+	if err == nil && res.StatusCode == http.StatusUnauthorized && c.RenewCredential != nil {
+		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4096))
+		res.Body.Close()
+		key, renewErr := c.RenewCredential(ctx)
+		if renewErr != nil {
+			return nil, renewErr
+		}
+		if !ValidKey(key) {
+			return nil, ErrUnauthorized
+		}
+		c.key = key
+		req.Header.Set("Authorization", "Bearer "+key)
+		if req.GetBody != nil {
+			req.Body, err = req.GetBody()
+			if err != nil {
+				return nil, err
+			}
+		} else if body != nil {
+			return nil, ErrUnauthorized
+		}
+		res, err = c.http.Do(req)
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, errors.New("storage connection failed; retry the upload to resume")
+		return nil, errors.New("storage connection failed (check that the agent is running)")
 	}
 	if res.StatusCode != 200 {
 		defer res.Body.Close()

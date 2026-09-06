@@ -50,6 +50,7 @@ test('real agent enrolls, persists sequence across processes/controller restart,
     try {
       await initial.query(await readFile(resolve(__dirname, '../migrations/001_nodes.sql'), 'utf8'));
       await initial.query(await readFile(resolve(__dirname, '../migrations/002_storage_grants.sql'), 'utf8'));
+      await initial.query(await readFile(resolve(__dirname, '../migrations/003_collections.sql'), 'utf8'));
     }
     finally { await initial.end(); }
     const url = await start();

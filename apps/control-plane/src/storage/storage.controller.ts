@@ -5,11 +5,11 @@ import { randomBytes } from 'node:crypto';
 import { AdminGuard } from '../auth/admin.guard';
 import { bearer, hashToken } from '../auth/tokens';
 import { permissionSchema, validationSchema } from './contracts';
-import { STORAGE_GRANTS, StorageGrantRepository } from './repository';
+import { STORAGE_REPOSITORY, StorageRepository } from './repository';
 
 @Controller('v1/nodes/:id/storage-grants')
 export class StorageController {
-  constructor(@Inject(STORAGE_GRANTS) private readonly grants: StorageGrantRepository) {}
+  constructor(@Inject(STORAGE_REPOSITORY) private readonly grants: StorageRepository) {}
 
   @Post()
   @UseGuards(AdminGuard)

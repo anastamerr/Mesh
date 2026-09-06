@@ -232,7 +232,7 @@ func (s *Store) Finish(ctx context.Context, id string) (Progress, error) {
 			return p, openErr
 		}
 		err = verify(ctx, f, e)
-		if err == nil && !published {
+		if err == nil && !published && e.Size == 0 {
 			err = f.Sync()
 		}
 		err = errors.Join(err, f.Close())

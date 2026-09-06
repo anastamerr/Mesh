@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -26,8 +27,11 @@ func Scan(ctx context.Context, root *os.Root) (Manifest, error) {
 		if name == "." {
 			return nil
 		}
-		if !validPath(name) || len(m.Entries) >= MaxEntries {
-			return ErrInvalid
+		if !validPath(name) {
+			return fmt.Errorf("unsupported file name %q: this release requires Windows-compatible ASCII paths", name)
+		}
+		if len(m.Entries) >= MaxEntries {
+			return fmt.Errorf("folder exceeds the limit of %d entries", MaxEntries)
 		}
 		info, err := d.Info()
 		if err != nil {
@@ -38,8 +42,11 @@ func Scan(ctx context.Context, root *os.Root) (Manifest, error) {
 			m.Entries = append(m.Entries, e)
 			return nil
 		}
-		if !info.Mode().IsRegular() || info.Size() > MaxFileBytes {
-			return ErrInvalid
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("cannot copy %q: links and special files are not supported", name)
+		}
+		if info.Size() > MaxFileBytes {
+			return fmt.Errorf("file %q exceeds the 1 TiB limit", name)
 		}
 		f, err := regular(root, name, os.O_RDONLY)
 		if err != nil {

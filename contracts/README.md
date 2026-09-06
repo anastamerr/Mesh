@@ -46,3 +46,11 @@ Send every 15 seconds as an initial client policy. Increase and persist the sequ
 The separate agent endpoint is documented in [ADR 0003](../docs/decisions/0003-native-storage.md), including manifest, chunk, authorization, recovery and publication semantics. It does not run on the control-plane port.
 
 Controller-issued transfer grants and enrolled agent validation are defined in [ADR 0004](../docs/decisions/0004-storage-authorization.md).
+
+## Collection catalogue
+
+- Operator `POST /v1/nodes/{id}/collections`: `{id, name, fileCount, totalBytes}` registers/renames a requested copy; returns `{accepted: true}`.
+- Operator `GET /v1/nodes/{id}/collections?after={collectionId}`: up to 100 catalogue entries (`id`, `name`, `fileCount`, `totalBytes`, `confirmedAt`), sorted by ID. A null confirmation means pending.
+- Node-authenticated `POST /v1/nodes/{id}/collections/confirm`: `{id, fileCount, totalBytes}` confirms that node's local publication; returns `{accepted: true}`.
+
+Details and consistency limits: [ADR 0005](../docs/decisions/0005-collection-workflow.md).

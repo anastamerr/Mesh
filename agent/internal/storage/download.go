@@ -39,6 +39,9 @@ func (c *Client) Download(ctx context.Context, id, destination string) (err erro
 	if actual != id {
 		return ErrConflict
 	}
+	_, total := m.Statistics()
+	var completed int64
+	c.progress(TransferEvent{Phase: "Downloading", Total: total})
 	for i, e := range m.Entries {
 		if e.Directory {
 			if err = root.MkdirAll(e.Path, 0700); err != nil {
@@ -46,7 +49,10 @@ func (c *Client) Download(ctx context.Context, id, destination string) (err erro
 			}
 			continue
 		}
-		if err = c.downloadFile(ctx, root, id, i, e); err != nil {
+		if err = c.downloadFile(ctx, root, id, i, e, func(n int64) {
+			completed += n
+			c.progress(TransferEvent{Phase: "Downloading", Completed: completed, Total: total})
+		}); err != nil {
 			return err
 		}
 	}
@@ -63,10 +69,11 @@ func (c *Client) Download(ctx context.Context, id, destination string) (err erro
 	if err != nil {
 		return err
 	}
+	c.progress(TransferEvent{Phase: "Complete", Completed: total, Total: total})
 	success = true
 	return nil
 }
-func (c *Client) downloadFile(ctx context.Context, root *os.Root, id string, index int, e Entry) (err error) {
+func (c *Client) downloadFile(ctx context.Context, root *os.Root, id string, index int, e Entry, progress func(int64)) (err error) {
 	res, err := c.request(ctx, "GET", fmt.Sprintf("/v1/collections/%s/files/%d", id, index), nil, nil)
 	if err != nil {
 		return err
@@ -77,8 +84,19 @@ func (c *Client) downloadFile(ctx context.Context, root *os.Root, id string, ind
 		return err
 	}
 	defer func() { err = errors.Join(err, f.Close()) }()
-	if err = verify(ctx, io.TeeReader(res.Body, f), e); err != nil {
+	if err = verify(ctx, io.TeeReader(res.Body, &progressWriter{writer: f, progress: progress}), e); err != nil {
 		return err
 	}
 	return f.Sync()
+}
+
+type progressWriter struct {
+	writer   io.Writer
+	progress func(int64)
+}
+
+func (w *progressWriter) Write(p []byte) (int, error) {
+	n, err := w.writer.Write(p)
+	w.progress(int64(n))
+	return n, err
 }

@@ -42,7 +42,7 @@ Every stateful command accepts `--state-dir` for isolated identities. The defaul
 
 Tests cover these contracts; Windows DPAPI/service behavior still needs actual Windows validation. CI includes Windows, macOS, and Linux tests. The module name is intentionally local until the repository's public location is decided.
 
-Next: central collection metadata and gateway routing, Windows service lifecycle validation, then a separately authenticated WSL executor.
+Next: gateway routing, Windows service lifecycle validation, then a separately authenticated WSL executor.
 
 ## Copy folders with native storage
 
@@ -70,3 +70,7 @@ For controller-authorized storage, use `storage serve --enrolled --root <directo
 The key-based demo above is restricted to loopback. For another machine, use enrolled serving with `--listen <address>:7332 --tls-cert <certificate.pem> --tls-key <private-key.pem>` and a client HTTPS URL matching a trusted certificate. There is no certificate-verification bypass. Windows uses the same commands; directory/key ACL provisioning and runtime validation remain pending.
 
 Enrolled serving validates each request with the controller and honors grant expiry and node revocation on subsequent requests. Controller outages fail closed. Requests already authorized may finish. The local shared-key mode remains independent of controller authorization.
+
+## Managed transfers
+
+From the repository root, `npm run mesh -- copy|catalog|get ...` handles collection IDs and scoped grants automatically. See [ADR 0005](../docs/decisions/0005-collection-workflow.md) for commands, progress, resumption and catalogue semantics. The underlying `mesh-agent storage copy|catalog|get` commands accept an operator key only over stdin with `--operator-stdin`; the development helper supplies it without placing it in arguments or child environment.

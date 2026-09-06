@@ -1,10 +1,12 @@
+import type { CollectionRegistration, CollectionStatistics } from '../src/storage/collection.contracts';
+import type { CollectionRecord } from '../src/storage/repository';
 import { StoragePermission } from '../src/storage/contracts';
-import { StorageGrantRepository } from '../src/storage/repository';
+import { StorageRepository } from '../src/storage/repository';
 import { randomUUID } from 'node:crypto';
 import { Enrollment, Heartbeat } from '../src/nodes/contracts';
 import { NodeRecord, NodeRepository } from '../src/nodes/repository';
 
-export class MemoryRepository implements NodeRepository, StorageGrantRepository {
+export class MemoryRepository implements NodeRepository, StorageRepository {
   tokens = new Map<string, Date>();
   nodes = new Map<string, NodeRecord & { hash: string; expires: Date; sequence: number }>();
   available = true;
@@ -57,6 +59,25 @@ export class MemoryRepository implements NodeRepository, StorageGrantRepository 
     return Boolean(this.available && node && node.hash === nodeHash && !node.revokedAt && node.expires.getTime() > Date.now()
       && grant && grant.nodeId === nodeId && grant.expiresAt.getTime() > Date.now()
       && grant.permission.access === permission.access && grant.permission.collectionId === permission.collectionId);
+  }
+  collections = new Map<string, CollectionRecord>();
+  async registerCollection(nodeId: string, input: CollectionRegistration) {
+    const node = this.nodes.get(nodeId);
+    if (!node || node.revokedAt || node.expires.getTime() <= Date.now()) return false;
+    const key = `${nodeId}/${input.id}`, existing = this.collections.get(key);
+    this.collections.set(key, existing ? { ...existing, name: input.name } : { ...input, confirmedAt: null });
+    return true;
+  }
+  async confirmCollection(nodeId: string, nodeHash: string, input: CollectionStatistics) {
+    const node = this.nodes.get(nodeId);
+    if (!node || node.hash !== nodeHash || node.revokedAt || node.expires.getTime() <= Date.now()) return false;
+    const key = `${nodeId}/${input.id}`, existing = this.collections.get(key);
+    this.collections.set(key, { ...input, name: existing?.name ?? input.id, confirmedAt: new Date() });
+    return true;
+  }
+  async listCollections(nodeId: string, after: string) {
+    return [...this.collections.entries()].filter(([key, item]) => key.startsWith(`${nodeId}/`) && item.id > after)
+      .map(([, item]) => item).sort((a, b) => a.id.localeCompare(b.id)).slice(0, 100);
   }
   async ready() { return this.available; }
 }

@@ -95,15 +95,26 @@ func (c *Client) Heartbeat(ctx context.Context, id, credential string, sequence 
 }
 
 func (c *Client) post(ctx context.Context, path, credential string, body, output any) error {
-	data, err := json.Marshal(body)
-	if err != nil {
-		return errors.New("cannot encode control message")
+	return c.request(ctx, http.MethodPost, path, credential, body, output)
+}
+
+func (c *Client) request(ctx context.Context, method, path, credential string, body, output any) error {
+	var data []byte
+	var payload io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return errors.New("cannot encode control message")
+		}
+		payload = bytes.NewReader(encoded)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, payload)
 	if err != nil {
 		return errors.New("cannot create control request")
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if credential != "" {
 		req.Header.Set("Authorization", "Bearer "+credential)
 	}

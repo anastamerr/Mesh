@@ -7,4 +7,5 @@ coverage/
 *.log
 .DS_Store
 agent/bin/
-tools/
+/tools/*
+!/tools/oxlint/

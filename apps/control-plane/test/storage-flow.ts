@@ -64,6 +64,19 @@ export async function storageFlow(options: {
     await assert.rejects(command(readKey, 'download', '--id', 'a'.repeat(64), '--destination', join(directory, 'wrong')), /HTTP 401/);
     const listKey = await grant('list');
     assert.deepEqual(JSON.parse((await command(listKey, 'list')).stdout), [id]);
+    const managedHelper = resolve(__dirname, '../../../scripts/mesh-local.mjs');
+    const managed = (action: string, ...args: string[]) => run(process.execPath,
+      [managedHelper, action, '--node', 'Integration host', ...args],
+      { env: { ...process.env, MESH_ADMIN_KEY: operatorKey, PORT: new URL(url).port }, timeout: 20_000 });
+    const copied = await managed('copy', '--server', server, '--source', source, '--name', 'Example folder', '--json');
+    assert.equal(z.object({ id: z.string() }).parse(JSON.parse(copied.stdout)).id, id);
+    assert.match(copied.stderr, /already present/);
+    assert.match(copied.stderr, /Complete/);
+    const catalogue = await managed('catalog');
+    assert.match(catalogue.stdout, /Example folder/);
+    assert.match(catalogue.stdout, /confirmed/);
+    await managed('get', '--server', server, '--collection', 'Example folder', '--destination', join(directory, 'managed-download'));
+    assert.deepEqual(await readFile(join(directory, 'managed-download', 'file.bin')), bytes);
     await options.whileControllerOffline(async () => {
       await assert.rejects(command(listKey, 'list'), /HTTP 503/);
     });

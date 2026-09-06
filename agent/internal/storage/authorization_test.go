@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -48,7 +51,7 @@ func TestEveryStorageOperationRequiresItsExactScope(t *testing.T) {
 					t.Fatal("wrong collection")
 				}
 				return ErrUnauthorized
-			})
+			}, nil)
 			req := httptest.NewRequest(tc.method, tc.path, bytes.NewReader(tc.body))
 			req.Header.Set("Authorization", "Bearer "+testKey)
 			req.Header.Set("Upload-Offset", "0")
@@ -68,12 +71,64 @@ func TestEveryStorageOperationRequiresItsExactScope(t *testing.T) {
 func TestAuthorizationUnavailableFailsClosed(t *testing.T) {
 	s := openStore(t, privateDir(t))
 	defer s.Close()
-	handler := AuthorizedHandler(s, func(context.Context, string, Permission) error { return ErrAuthorizationUnavailable })
+	handler := AuthorizedHandler(s, func(context.Context, string, Permission) error { return ErrAuthorizationUnavailable }, nil)
 	req := httptest.NewRequest(http.MethodGet, "/v1/collections", nil)
 	req.Header.Set("Authorization", "Bearer "+testKey)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, req)
 	if response.Code != 503 {
 		t.Fatal(response.Code)
+	}
+}
+
+func TestPublicationFailureCanReconcileOnRepeatedUpload(t *testing.T) {
+	s := openStore(t, privateDir(t))
+	defer s.Close()
+	calls := 0
+	server := httptest.NewServer(AuthorizedHandler(s, LocalAuthorizer(testKey), func(context.Context, string, Manifest) error {
+		calls++
+		if calls == 1 {
+			return ErrAuthorizationUnavailable
+		}
+		return nil
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL, testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := privateDir(t)
+	if _, err = client.Upload(testContext, source); err == nil {
+		t.Fatal("unconfirmed copy reported success")
+	}
+	if _, err = client.Upload(testContext, source); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatal("publication was not retried", calls)
+	}
+}
+
+func TestRenewedCredentialReplaysUploadBodyOnce(t *testing.T) {
+	s := openStore(t, privateDir(t))
+	defer s.Close()
+	renewed := strings.Repeat("b", 43)
+	server := httptest.NewServer(Handler(s, renewed))
+	defer server.Close()
+	client, err := NewClient(server.URL, testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	client.RenewCredential = func(context.Context) (string, error) { calls++; return renewed, nil }
+	source := privateDir(t)
+	if err = os.WriteFile(filepath.Join(source, "file"), []byte("replayed body"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.Upload(testContext, source); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatal("unexpected renewal count", calls)
 	}
 }

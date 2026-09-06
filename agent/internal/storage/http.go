@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -30,9 +31,11 @@ func storageError(w http.ResponseWriter, err error) {
 	http.Error(w, http.StatusText(code), code)
 }
 
+type PublicationReporter func(context.Context, string, Manifest) error
+
 // AuthorizedHandler checks scope before touching collection state. It does not
 // cache decisions: revocation and expiry apply to each subsequent request.
-func AuthorizedHandler(store *Store, authorize Authorizer) http.Handler {
+func AuthorizedHandler(store *Store, authorize Authorizer, report PublicationReporter) http.Handler {
 	allow := func(w http.ResponseWriter, r *http.Request, access, id string) bool {
 		permission := Permission{Access: access}
 		if access != "list" {
@@ -102,6 +105,16 @@ func AuthorizedHandler(store *Store, authorize Authorizer) http.Handler {
 		if err != nil {
 			storageError(w, err)
 			return
+		}
+		if report != nil {
+			manifest, _, err := store.manifest(r.Context(), p.ID, true)
+			if err == nil {
+				err = report(r.Context(), p.ID, manifest)
+			}
+			if err != nil {
+				storageError(w, ErrAuthorizationUnavailable)
+				return
+			}
 		}
 		jsonReply(w, p)
 	})
