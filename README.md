@@ -12,6 +12,14 @@ Backend and first working native-agent slice. Implemented: PostgreSQL migrations
 
 The Go agent enrolls, stores its identity, reports real CPU/RAM inventory, and sends heartbeats with durable sequences and reconnect backoff. The Linux executor remains a skeleton. Native storage now supports direct authenticated folder uploads, durable resumption, checksum verification, listing and retrieval. Enrolled storage validates short-lived, node/collection-scoped permissions with the controller on every request; shared storage keys are loopback-only development mode. See [the authorized storage workflow](docs/decisions/0004-storage-authorization.md). No Windows service, WSL provisioning, Docker execution, remote tunnel, accounts, or UI exists yet. See [agent commands and guarantees](agent/README.md).
 
+## Run an enrolled node
+
+```sh
+mesh-agent run --root /absolute/path/to/mesh-files
+```
+
+This runs heartbeats and storage together. The default storage listener is loopback; remote listening requires `--listen`, `--tls-cert`, and `--tls-key`. It remains a foreground process. See [transfer efficiency and setup direction](docs/decisions/0006-transfer-efficiency.md).
+
 ## Copy and retrieve folders
 
 After enrollment and enrolled storage startup:

@@ -58,21 +58,8 @@ func executeStorage(ctx context.Context, args []string, input io.Reader, output,
 		if err != nil {
 			return err
 		}
-		authorize := func(ctx context.Context, token string, permission storage.Permission) error {
-			err := client.AuthorizeStorage(ctx, saved.NodeID, saved.Credential, token, permission.Access, permission.CollectionID)
-			if err == nil {
-				return nil
-			}
-			var api *control.APIError
-			if errors.As(err, &api) && (api.Status == 401 || api.Status == 403) {
-				return storage.ErrUnauthorized
-			}
-			return storage.ErrAuthorizationUnavailable
-		}
-		return serveStorage(ctx, o, authorize, logs, func(ctx context.Context, id string, m storage.Manifest) error {
-			count, total := m.Statistics()
-			return client.ConfirmCollection(ctx, saved.NodeID, saved.Credential, id, count, total)
-		})
+		authorize, report := enrolledStorage(client, saved.NodeID, saved.Credential)
+		return serveStorage(ctx, o, authorize, logs, report)
 	}
 	key, err := readStorageKey(o.keyFile)
 	if err != nil {
@@ -141,4 +128,23 @@ func readStorageKey(name string) (string, error) {
 		return "", errors.New("invalid storage key file")
 	}
 	return key, nil
+}
+
+func enrolledStorage(client *control.Client, nodeID, credential string) (storage.Authorizer, storage.PublicationReporter) {
+	authorize := func(ctx context.Context, token string, permission storage.Permission) error {
+		err := client.AuthorizeStorage(ctx, nodeID, credential, token, permission.Access, permission.CollectionID)
+		if err == nil {
+			return nil
+		}
+		var api *control.APIError
+		if errors.As(err, &api) && (api.Status == 401 || api.Status == 403) {
+			return storage.ErrUnauthorized
+		}
+		return storage.ErrAuthorizationUnavailable
+	}
+	report := func(ctx context.Context, id string, m storage.Manifest) error {
+		count, total := m.Statistics()
+		return client.ConfirmCollection(ctx, nodeID, credential, id, count, total)
+	}
+	return authorize, report
 }

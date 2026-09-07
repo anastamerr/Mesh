@@ -78,7 +78,7 @@ export async function storageFlow(options: {
     await managed('get', '--server', server, '--collection', 'Example folder', '--destination', join(directory, 'managed-download'));
     assert.deepEqual(await readFile(join(directory, 'managed-download', 'file.bin')), bytes);
     await options.whileControllerOffline(async () => {
-      await assert.rejects(command(listKey, 'list'), /HTTP 503/);
+      await assert.rejects(command(listKey, 'list'), /cannot confirm access with the controller/);
     });
     assert.deepEqual(JSON.parse((await command(listKey, 'list')).stdout), [id]);
     assert.equal((await fetch(`${url}/v1/nodes/${nodeId}/revoke`, { method: 'POST', headers: { authorization: `Bearer ${operatorKey}` } })).status, 200);

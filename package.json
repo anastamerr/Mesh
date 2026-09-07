@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test:live": "npm run test:live --workspace @mesh/control-plane",
+    "test:windows": "npm run test:windows --workspace @mesh/control-plane",
     "mesh": "node --env-file=apps/control-plane/.env scripts/mesh-local.mjs",
     "lint": "oxlint . --deny-warnings",
     "agent:enroll": "node --env-file=apps/control-plane/.env scripts/enroll-local-agent.mjs",

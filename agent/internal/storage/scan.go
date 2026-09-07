@@ -16,7 +16,12 @@ import (
 // The source is read again on upload, and the server verifies it against this
 // manifest, so concurrent source changes cannot silently produce a bad copy.
 func Scan(ctx context.Context, root *os.Root) (Manifest, error) {
+	return scan(ctx, root, nil)
+}
+func scan(ctx context.Context, root *os.Root, progress func(TransferEvent)) (Manifest, error) {
 	m := Manifest{Version: 1, Entries: []Entry{}}
+	var hashed int64
+	files := 0
 	err := fs.WalkDir(root.FS(), ".", func(name string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -53,7 +58,12 @@ func Scan(ctx context.Context, root *os.Root) (Manifest, error) {
 			return err
 		}
 		h := sha256.New()
-		n, err := io.Copy(h, &contextReader{ctx: ctx, r: io.LimitReader(f, MaxFileBytes+1)})
+		n, err := io.Copy(&progressWriter{writer: h, progress: func(n int64) {
+			hashed += n
+			if progress != nil {
+				progress(TransferEvent{Phase: "Scanning", Completed: hashed, Files: files})
+			}
+		}}, &contextReader{ctx: ctx, r: io.LimitReader(f, MaxFileBytes+1)})
 		err = errors.Join(err, f.Close())
 		if err != nil {
 			return err
@@ -61,9 +71,13 @@ func Scan(ctx context.Context, root *os.Root) (Manifest, error) {
 		if n != info.Size() {
 			return errors.New("source changed while building manifest")
 		}
+		files++
 		e.Size = n
 		e.SHA256 = hex.EncodeToString(h.Sum(nil))
 		m.Entries = append(m.Entries, e)
+		if progress != nil {
+			progress(TransferEvent{Phase: "Scanning", Completed: hashed, Files: files})
+		}
 		return nil
 	})
 	if err != nil {

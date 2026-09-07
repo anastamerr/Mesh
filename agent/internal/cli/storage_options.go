@@ -69,18 +69,8 @@ func parseStorage(args []string, logs io.Writer) (storageOptions, error) {
 		if (o.enrolled && o.keyFile != "") || (!o.enrolled && o.stateDir != "") {
 			return o, errors.New("choose enrolled identity or a loopback development key, not both")
 		}
-		host, _, err := net.SplitHostPort(o.listen)
-		if err != nil || o.root == "" {
-			return o, errors.New("serve requires --root and a valid --listen host:port")
-		}
-		if (o.cert == "") != (o.key == "") {
-			return o, errors.New("both --tls-cert and --tls-key are required")
-		}
-		if !o.enrolled && !net.ParseIP(host).IsLoopback() {
-			return o, errors.New("shared storage keys are limited to loopback development; use --enrolled for remote serving")
-		}
-		if o.cert == "" && !net.ParseIP(host).IsLoopback() {
-			return o, errors.New("non-loopback listeners require TLS; use a loopback IP for local development")
+		if err := validateServing(o); err != nil {
+			return o, err
 		}
 	case "identify":
 		if o.source == "" {
@@ -100,4 +90,21 @@ func parseStorage(args []string, logs io.Writer) (storageOptions, error) {
 		}
 	}
 	return o, nil
+}
+
+func validateServing(o storageOptions) error {
+	host, _, err := net.SplitHostPort(o.listen)
+	if err != nil || o.root == "" {
+		return errors.New("serve requires --root and a valid --listen host:port")
+	}
+	if (o.cert == "") != (o.key == "") {
+		return errors.New("both --tls-cert and --tls-key are required")
+	}
+	if !o.enrolled && !net.ParseIP(host).IsLoopback() {
+		return errors.New("shared storage keys are limited to loopback development; use --enrolled for remote serving")
+	}
+	if o.cert == "" && !net.ParseIP(host).IsLoopback() {
+		return errors.New("non-loopback listeners require TLS; use a loopback IP for local development")
+	}
+	return nil
 }

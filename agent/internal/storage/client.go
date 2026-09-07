@@ -21,8 +21,15 @@ type Client struct {
 	Progress        func(TransferEvent)
 	RenewCredential func(context.Context) (string, error)
 	base, key       string
+	batch           bool
 	http            *http.Client
 }
+
+// UnavailableError identifies failures for which a durable upload may reconnect.
+// It never includes response bodies, credentials, or transport internals.
+type UnavailableError struct{ Reason string }
+
+func (e *UnavailableError) Error() string { return e.Reason }
 
 func NewClient(server, key string) (*Client, error) {
 	u, err := url.Parse(server)
@@ -87,11 +94,21 @@ func (c *Client) request(ctx context.Context, method, path string, body io.Reade
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, errors.New("storage connection failed (check that the agent is running)")
+		return nil, &UnavailableError{Reason: "storage connection failed; check the agent and network"}
 	}
 	if res.StatusCode != 200 {
 		defer res.Body.Close()
 		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4096))
+		if res.StatusCode == 503 {
+			reason := "storage temporarily unavailable; check the agent and controller connection"
+			if res.Header.Get("Mesh-Error") == "busy" {
+				reason = "storage is busy; waiting for a transfer slot"
+			}
+			if res.Header.Get("Mesh-Error") == "authorization-unavailable" {
+				reason = "agent cannot confirm access with the controller; check its controller connection"
+			}
+			return nil, &UnavailableError{Reason: reason}
+		}
 		return nil, fmt.Errorf("storage returned HTTP %d", res.StatusCode)
 	}
 	return res, nil
@@ -110,6 +127,7 @@ func (c *Client) json(ctx context.Context, method, path string, input, output an
 		return err
 	}
 	defer res.Body.Close()
+	c.batch = res.Header.Get("Mesh-Transfer-Features") == batchFeature
 	return readJSON(res.Body, output)
 }
 func readJSON(r io.Reader, value any) error {

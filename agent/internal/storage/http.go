@@ -21,6 +21,7 @@ func storageError(w http.ResponseWriter, err error) {
 		code = 401
 	case errors.Is(err, ErrAuthorizationUnavailable):
 		code = 503
+		w.Header().Set("Mesh-Error", "authorization-unavailable")
 	case errors.Is(err, ErrInvalid):
 		code = 400
 	case errors.Is(err, ErrNotFound):
@@ -53,6 +54,18 @@ func AuthorizedHandler(store *Store, authorize Authorizer, report PublicationRep
 		return true
 	}
 	mux := http.NewServeMux()
+	for _, method := range []string{"GET", "PUT"} {
+		mux.HandleFunc(method+" /v1/collections/{id}/batch", func(w http.ResponseWriter, r *http.Request) {
+			access := "read"
+			if r.Method == "PUT" {
+				access = "write"
+			}
+			if allow(w, r, access, r.PathValue("id")) {
+				store.batchHandler(w, r)
+			}
+		})
+	}
+
 	mux.HandleFunc("POST /v1/collections", func(w http.ResponseWriter, r *http.Request) {
 		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxManifestBytes))
 		var m Manifest
@@ -166,6 +179,7 @@ func AuthorizedHandler(store *Store, authorize Authorizer, report PublicationRep
 	slots := make(chan struct{}, 4)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Mesh-Transfer-Features", batchFeature)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		header := r.Header.Get("Authorization")
 		if !strings.HasPrefix(header, "Bearer ") || !ValidKey(strings.TrimPrefix(header, "Bearer ")) {
@@ -176,6 +190,8 @@ func AuthorizedHandler(store *Store, authorize Authorizer, report PublicationRep
 		case slots <- struct{}{}:
 			defer func() { <-slots }()
 		default:
+			w.Header().Set("Mesh-Error", "busy")
+			w.Header().Set("Retry-After", "1")
 			http.Error(w, "Busy", 503)
 			return
 		}

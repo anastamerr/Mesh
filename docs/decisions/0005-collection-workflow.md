@@ -1,6 +1,6 @@
 # ADR 0005: Collection catalogue and managed CLI transfers
 
-Status: implemented. No UI or remote gateway is added in this checkpoint.
+Status: implemented. No UI or remote gateway is added in this checkpoint. [ADR 0006](0006-transfer-efficiency.md) updates batching, automatic transient-error retries, and the foreground node command.
 
 ## User workflow
 

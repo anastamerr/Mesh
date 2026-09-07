@@ -12,12 +12,12 @@ type PreparedFolder struct {
 	Manifest Manifest
 }
 
-func Prepare(ctx context.Context, source string) (*PreparedFolder, error) {
+func Prepare(ctx context.Context, source string, progress func(TransferEvent)) (*PreparedFolder, error) {
 	root, err := os.OpenRoot(source)
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := Scan(ctx, root)
+	manifest, err := scan(ctx, root, progress)
 	if err != nil {
 		root.Close()
 		return nil, err
@@ -39,6 +39,7 @@ func (m Manifest) Statistics() (int, int64) {
 
 type TransferEvent struct {
 	Phase     string
+	Files     int
 	Completed int64
 	Total     int64
 	Reused    int64

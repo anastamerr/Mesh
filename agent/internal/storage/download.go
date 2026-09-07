@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -42,19 +43,41 @@ func (c *Client) Download(ctx context.Context, id, destination string) (err erro
 	_, total := m.Statistics()
 	var completed int64
 	c.progress(TransferEvent{Phase: "Downloading", Total: total})
-	for i, e := range m.Entries {
+	progress := func(n int64) {
+		completed += n
+		c.progress(TransferEvent{Phase: "Downloading", Completed: completed, Total: total})
+	}
+	for _, e := range m.Entries {
 		if e.Directory {
 			if err = root.MkdirAll(e.Path, 0700); err != nil {
 				return err
 			}
+		} else if e.Size == 0 {
+			if err = receiveFile(ctx, root, e, bytes.NewReader(nil), progress); err != nil {
+				return err
+			}
+		}
+	}
+	for i := 0; i < len(m.Entries); {
+		e := m.Entries[i]
+		if e.Directory || e.Size == 0 {
+			i++
 			continue
 		}
-		if err = c.downloadFile(ctx, root, id, i, e, func(n int64) {
-			completed += n
-			c.progress(TransferEvent{Phase: "Downloading", Completed: completed, Total: total})
-		}); err != nil {
+		if c.batch {
+			indices := batchIndices(m, i, nil)
+			if e.Size > 0 && len(indices) > 1 {
+				if err = c.downloadBatch(ctx, root, m, id, indices, progress); err != nil {
+					return err
+				}
+				i = indices[len(indices)-1] + 1
+				continue
+			}
+		}
+		if err = c.downloadFile(ctx, root, id, i, e, progress); err != nil {
 			return err
 		}
+		i++
 	}
 	if err = syncTree(root, m); err != nil {
 		return err
@@ -79,12 +102,15 @@ func (c *Client) downloadFile(ctx context.Context, root *os.Root, id string, ind
 		return err
 	}
 	defer res.Body.Close()
+	return receiveFile(ctx, root, e, res.Body, progress)
+}
+func receiveFile(ctx context.Context, root *os.Root, e Entry, body io.Reader, progress func(int64)) (err error) {
 	f, err := root.OpenFile(e.Path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, f.Close()) }()
-	if err = verify(ctx, io.TeeReader(res.Body, &progressWriter{writer: f, progress: progress}), e); err != nil {
+	if err = verify(ctx, io.TeeReader(body, &progressWriter{writer: f, progress: progress}), e); err != nil {
 		return err
 	}
 	return f.Sync()

@@ -10,6 +10,7 @@ import (
 )
 
 type options struct {
+	storage    storageOptions
 	command    string
 	stateDir   string
 	server     string
@@ -42,6 +43,11 @@ func parseOptions(args []string, logs io.Writer) (options, error) {
 	}
 	if o.command == "run" {
 		flags.DurationVar(&o.interval, "interval", 15*time.Second, "heartbeat interval, between 1s and 30s")
+		o.storage.enrolled = true
+		flags.StringVar(&o.storage.root, "root", "", "also serve this dedicated storage directory")
+		flags.StringVar(&o.storage.listen, "listen", "127.0.0.1:7332", "storage listen address; remote access requires TLS")
+		flags.StringVar(&o.storage.cert, "tls-cert", "", "storage TLS certificate PEM file")
+		flags.StringVar(&o.storage.key, "tls-key", "", "storage TLS private key PEM file")
 	}
 	if err := flags.Parse(args[1:]); err != nil {
 		return o, err
@@ -51,6 +57,24 @@ func parseOptions(args []string, logs io.Writer) (options, error) {
 	}
 	if o.command == "run" && (o.interval < time.Second || o.interval > 30*time.Second) {
 		return o, errors.New("heartbeat interval must be between 1s and 30s")
+	}
+
+	if o.command == "run" {
+		if o.storage.root != "" {
+			if err := validateServing(o.storage); err != nil {
+				return o, err
+			}
+		} else {
+			var storageFlag bool
+			flags.Visit(func(f *flag.Flag) {
+				if f.Name == "listen" || f.Name == "tls-cert" || f.Name == "tls-key" {
+					storageFlag = true
+				}
+			})
+			if storageFlag {
+				return o, errors.New("storage options require --root")
+			}
+		}
 	}
 	if o.command == "enroll" {
 		if !o.tokenStdin {

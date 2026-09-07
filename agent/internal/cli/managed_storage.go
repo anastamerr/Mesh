@@ -98,7 +98,7 @@ func managedStorage(ctx context.Context, args []string, input io.Reader, output,
 }
 func copyManaged(ctx context.Context, controller *control.Client, key, node string, o managedOptions, output, logs io.Writer) error {
 	fmt.Fprintln(logs, "Scanning folder and calculating checksums...")
-	folder, err := storage.Prepare(ctx, o.source)
+	folder, err := storage.Prepare(ctx, o.source, progressPrinter(logs))
 	if err != nil {
 		return err
 	}
@@ -124,7 +124,7 @@ func copyManaged(ctx context.Context, controller *control.Client, key, node stri
 	if err != nil {
 		return err
 	}
-	if _, err = client.UploadPrepared(ctx, folder); err != nil {
+	if _, err = uploadWithRecovery(ctx, client, folder, logs); err != nil {
 		return fmt.Errorf("copy interrupted; rerun the same command to resume: %w", err)
 	}
 	if o.json {
@@ -133,6 +133,28 @@ func copyManaged(ctx context.Context, controller *control.Client, key, node stri
 	_, err = fmt.Fprintf(output, "Copied %q: %d files, %s.\nCollection: %s\n", name, count, formatBytes(total), id)
 	return err
 }
+
+// Re-read durable offsets after a transient failure instead of replaying an
+// uncertain write. Source hashing is retained; a changed source still fails verification.
+func uploadWithRecovery(ctx context.Context, client *storage.Client, folder *storage.PreparedFolder, logs io.Writer) (string, error) {
+	for attempt := 0; ; attempt++ {
+		id, err := client.UploadPrepared(ctx, folder)
+		var unavailable *storage.UnavailableError
+		if err == nil || attempt == 2 || !errors.As(err, &unavailable) || ctx.Err() != nil {
+			return id, err
+		}
+		delay := time.Duration(1<<attempt) * time.Second
+		fmt.Fprintf(logs, "%v. Retrying in %s (%d/3); checking saved progress...\n", err, delay, attempt+2)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
 func getManaged(ctx context.Context, controller *control.Client, key, node string, o managedOptions, output, logs io.Writer) error {
 	var found *control.Collection
 	after := ""
@@ -237,17 +259,46 @@ func formatBytes(n int64) string {
 func progressPrinter(logs io.Writer) func(storage.TransferEvent) {
 	var last time.Time
 	phase := ""
+	var began time.Time
+	var initial, reused int64
 	return func(event storage.TransferEvent) {
+		if event.Phase == "Scanning" && phase == "" {
+			phase, last = event.Phase, time.Now()
+			return
+		}
+		if event.Phase != phase || event.Reused != reused {
+			reused = event.Reused
+			began = time.Now()
+			initial = event.Completed
+		}
+
 		if event.Phase == phase && time.Since(last) < time.Second {
 			return
 		}
 		phase = event.Phase
 		last = time.Now()
+		if phase == "Scanning" {
+			fmt.Fprintf(logs, "Scanning: %d files hashed, %s read...\n", event.Files, formatBytes(event.Completed))
+			return
+		}
 		percent := float64(100)
 		if event.Total > 0 {
 			percent = 100 * float64(event.Completed) / float64(event.Total)
 		}
 		fmt.Fprintf(logs, "%s: %s / %s (%.0f%%)", phase, formatBytes(event.Completed), formatBytes(event.Total), percent)
+		elapsed := time.Since(began).Seconds()
+		if (phase == "Uploading" || phase == "Downloading") && elapsed >= 1 && event.Completed > initial {
+			rate := float64(event.Completed-initial) / elapsed
+			fmt.Fprintf(logs, "; %s/s", formatBytes(int64(rate)))
+			if event.Total > event.Completed {
+				seconds := float64(event.Total-event.Completed) / rate
+				if seconds < 24*60*60 {
+					fmt.Fprintf(logs, "; about %s left", (time.Duration(seconds * float64(time.Second))).Round(time.Second))
+				} else {
+					fmt.Fprint(logs, "; more than 1 day left")
+				}
+			}
+		}
 		if event.Reused > 0 {
 			fmt.Fprintf(logs, "; %s already present", formatBytes(event.Reused))
 		}

@@ -104,52 +104,64 @@ func (s *Store) Write(ctx context.Context, id string, index int, offset int64, d
 		return 0, err
 	}
 	defer root.Close()
-	if err = root.MkdirAll(path.Dir(e.Path), 0700); err != nil {
-		return 0, err
-	}
-	f, err := regular(root, e.Path, os.O_CREATE|os.O_RDWR)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return 0, err
-	}
-	if info.Size() < durable {
-		return 0, ErrConflict
-	}
-	// A crash before the SQLite commit may leave an unacknowledged tail.
-	if info.Size() > durable {
-		if err = f.Truncate(durable); err != nil {
-			return 0, err
+	reset, err := writeFile(ctx, root, e, durable, data)
+	if reset {
+		if _, resetErr := s.db.ExecContext(ctx, "UPDATE files SET offset=0 WHERE collection=? AND ordinal=?", id, index); resetErr != nil {
+			return 0, resetErr
 		}
 	}
-	if _, err = f.WriteAt(data, durable); err != nil {
-		return 0, err
-	}
-	if err = f.Sync(); err != nil {
+	if err != nil {
 		return 0, err
 	}
 	if err = syncParents(root, e.Path); err != nil {
 		return 0, err
 	}
 	next := durable + int64(len(data))
-	if next == e.Size {
-		if _, err = f.Seek(0, io.SeekStart); err != nil {
-			return 0, err
-		}
-		if err = verify(ctx, f, e); err != nil {
-			// Restart this file on the next attempt; never publish mismatched bytes.
-			if _, resetErr := s.db.ExecContext(ctx, "UPDATE files SET offset=0 WHERE collection=? AND ordinal=?", id, index); resetErr != nil {
-				return 0, resetErr
-			}
-			return 0, err
-		}
-	}
 	_, err = s.db.ExecContext(ctx, "UPDATE files SET offset=? WHERE collection=? AND ordinal=?", next, id, index)
 	return next, err
 }
+
+// File bytes are synced before callers persist offsets. Directory entries and
+// journal commits are handled once per acknowledgement (one chunk or a batch).
+func writeFile(ctx context.Context, root *os.Root, e Entry, durable int64, data []byte) (reset bool, err error) {
+	if err = root.MkdirAll(path.Dir(e.Path), 0700); err != nil {
+		return false, err
+	}
+	f, err := regular(root, e.Path, os.O_CREATE|os.O_RDWR)
+	if err != nil {
+		return false, err
+	}
+	defer func() { err = errors.Join(err, f.Close()) }()
+	info, err := f.Stat()
+	if err != nil {
+		return false, err
+	}
+	if info.Size() < durable {
+		return false, ErrConflict
+	}
+	// Discard a tail written before a lost journal commit.
+	if info.Size() > durable {
+		if err = f.Truncate(durable); err != nil {
+			return false, err
+		}
+	}
+	if _, err = f.WriteAt(data, durable); err != nil {
+		return false, err
+	}
+	if err = f.Sync(); err != nil {
+		return false, err
+	}
+	if durable+int64(len(data)) == e.Size {
+		if _, err = f.Seek(0, io.SeekStart); err != nil {
+			return false, err
+		}
+		if err = verify(ctx, f, e); err != nil {
+			return true, err
+		}
+	}
+	return false, nil
+}
+
 func verify(ctx context.Context, r io.Reader, e Entry) error {
 	h := sha256.New()
 	n, err := io.Copy(h, &contextReader{ctx: ctx, r: io.LimitReader(r, e.Size+1)})

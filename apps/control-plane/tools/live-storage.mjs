@@ -57,7 +57,8 @@ async function node(executable, name) {
   const token = z.object({ enrollmentToken: z.string() }).parse(await request('/v1/enrollment-tokens', {})).enrollmentToken;
   successful(await run(executable, ['enroll', '--server', url, '--name', name, '--token-stdin', '--state-dir', state], token));
   const id = z.object({ nodeId: z.uuid() }).parse(JSON.parse(successful(await run(executable, ['status', '--state-dir', state])).stdout)).nodeId;
-  const child = spawn(executable, ['storage', 'serve', '--enrolled', '--state-dir', state, '--root', root, '--listen', '127.0.0.1:0'], { env: cleanEnv, stdio: ['ignore', 'ignore', 'pipe'] });
+  const serving = executable === baseline ? ['storage', 'serve', '--enrolled'] : ['run'];
+  const child = spawn(executable, [...serving, '--state-dir', state, '--root', root, '--listen', '127.0.0.1:0'], { env: cleanEnv, stdio: ['ignore', 'ignore', 'pipe'] });
   const exited = once(child, 'exit'); children.push({ child, exited });
   const endpoint = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Agent did not start')), 10_000);
@@ -160,7 +161,7 @@ try {
   const pending = successful(await managed('catalog')); assert.match(pending.stdout, /pending/);
   // Restart the same identity/root through its original CLI args; reuse the endpoint port.
   await children[0].exited;
-  const restarted = spawn(binary, ['storage', 'serve', '--enrolled', '--state-dir', current.state, '--root', current.root,
+  const restarted = spawn(binary, ['run', '--state-dir', current.state, '--root', current.root,
     '--listen', new URL(current.endpoint).host], { env: cleanEnv, stdio: ['ignore', 'ignore', 'pipe'] });
   const exited = once(restarted, 'exit'); children.push({ child: restarted, exited });
   await new Promise((resolve, reject) => { restarted.stderr.once('data', resolve); restarted.once('error', reject); });

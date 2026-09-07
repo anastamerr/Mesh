@@ -22,7 +22,7 @@ func validateProgress(p Progress, m Manifest, id string) error {
 }
 func (c *Client) Upload(ctx context.Context, source string) (string, error) {
 	c.progress(TransferEvent{Phase: "Scanning"})
-	folder, err := Prepare(ctx, source)
+	folder, err := Prepare(ctx, source, c.progress)
 	if err != nil {
 		return "", err
 	}
@@ -49,14 +49,33 @@ func (c *Client) UploadPrepared(ctx context.Context, folder *PreparedFolder) (st
 	}
 	reused := completed
 	c.progress(TransferEvent{Phase: "Uploading", Completed: completed, Total: total, Reused: reused})
-	buffer := make([]byte, ChunkSize)
-	for i, e := range m.Entries {
+	var buffer []byte
+	for i := 0; i < len(m.Entries); {
+		e := m.Entries[i]
 		if e.Directory || p.Offsets[i] == e.Size {
+			i++
 			continue
+		}
+		if c.batch {
+			indices := batchIndices(m, i, p.Offsets)
+			if len(indices) > 1 {
+				if err := c.uploadBatch(ctx, root, m, id, indices); err != nil {
+					return "", err
+				}
+				for _, index := range indices {
+					completed += m.Entries[index].Size
+				}
+				c.progress(TransferEvent{Phase: "Uploading", Completed: completed, Total: total, Reused: reused})
+				i = indices[len(indices)-1] + 1
+				continue
+			}
 		}
 		f, err := regular(root, e.Path, os.O_RDONLY)
 		if err != nil {
 			return "", err
+		}
+		if buffer == nil {
+			buffer = make([]byte, ChunkSize)
 		}
 		err = c.uploadFile(ctx, id, i, f, e.Size, p.Offsets[i], buffer, func(n int64) {
 			completed += n
@@ -66,6 +85,7 @@ func (c *Client) UploadPrepared(ctx context.Context, folder *PreparedFolder) (st
 		if err != nil {
 			return "", err
 		}
+		i++
 	}
 	c.progress(TransferEvent{Phase: "Verifying", Completed: completed, Total: total, Reused: reused})
 	if err = c.json(ctx, "POST", "/v1/collections/"+id+"/finish", nil, &p); err != nil {

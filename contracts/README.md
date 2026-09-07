@@ -54,3 +54,7 @@ Controller-issued transfer grants and enrolled agent validation are defined in [
 - Node-authenticated `POST /v1/nodes/{id}/collections/confirm`: `{id, fileCount, totalBytes}` confirms that node's local publication; returns `{accepted: true}`.
 
 Details and consistency limits: [ADR 0005](../docs/decisions/0005-collection-workflow.md).
+
+## Native storage batching
+
+Agents advertise `Mesh-Transfer-Features: batch-v1`. Negotiated clients use `GET`/`PUT /v1/collections/{id}/batch?indices=...` for strictly ordered small-file indices, bounded to 128 files, 256 KiB per file and 4 MiB total. Upload acknowledgements contain all committed `offsets`. Each request is scoped and authorized, and file checksums remain mandatory. Clients fall back to individual file endpoints when the feature is absent. See [ADR 0006](../docs/decisions/0006-transfer-efficiency.md) for durability and compatibility semantics.

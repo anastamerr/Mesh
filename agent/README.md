@@ -23,7 +23,7 @@ Start PostgreSQL and `npm run dev` as described in the root README. Build the na
 npm run agent:enroll -- --name "Development Mac"
 agent/bin/mesh-agent status
 agent/bin/mesh-agent heartbeat
-agent/bin/mesh-agent run
+agent/bin/mesh-agent run --root "$HOME/mesh-files"
 ```
 
 The helper reads the ignored backend `.env`, requests a one-use token from the loopback API, and delivers it over stdin. It does not pass the operator key or database credentials to the agent. To enroll on a separate host, supply an operator-issued token over stdin to `mesh-agent enroll --server https://your-control-plane --name Lenovo --token-stdin`. Do not put secrets in command arguments or shell history. Remote use still requires properly configured HTTPS and the backend's planned authentication hardening.
@@ -41,6 +41,8 @@ Every stateful command accepts `--state-dir` for isolated identities. The defaul
 - An enrollment response lost after controller commit can leave an orphaned node. Inspect/revoke it before retrying.
 
 Tests cover these contracts; Windows DPAPI/service behavior still needs actual Windows validation. CI includes Windows, macOS, and Linux tests. The module name is intentionally local until the repository's public location is decided.
+
+With `--root`, `run` also serves enrolled storage and shuts both tasks down together. Without it, `run` remains heartbeat-only. See [ADR 0006](../docs/decisions/0006-transfer-efficiency.md) for batching, retries, and setup direction.
 
 Next: gateway routing, Windows service lifecycle validation, then a separately authenticated WSL executor.
 

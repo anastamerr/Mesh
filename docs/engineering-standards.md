@@ -26,6 +26,14 @@
 - Do not remove synchronization or durability to improve benchmark numbers.
 - State the measured change narrowly. For example: the accepted heartbeat path uses one SQL statement instead of BEGIN/SELECT/UPDATE/COMMIT. This is not a claim of fourfold end-to-end throughput.
 
+## Transfer and onboarding work
+
+- Measure bytes, request count, first feedback, repeat-copy cost and recovery behavior; separate latency, bandwidth, disk and transport effects.
+- Compare old and new paths with the same fixtures. Label simulated latency and local results; avoid unmeasured claims of optimal performance.
+- Bound batching, buffering and retries. Acknowledgements must follow file, directory and journal durability barriers.
+- Make slow work and reconnection visible. Explain the next action and keep credentials out of progress/errors.
+- Consolidate lifecycle ownership and common validation. An end-user setup flow should not require SSH or manual firewall debugging; implement pairing, routing and service installation as explicit future slices.
+
 ## Verification before a commit
 
 - TypeScript/JavaScript: `npm run lint` runs every generic anti-slop rule at error severity across source, tests and scripts. Vendored rule source and generated/agent assets are excluded. Do not disable rules or disguise types to satisfy them; parse external input at the HTTP/JSON boundary, preserve inferred types, and use real typed dependency seams in tests. Any necessary type assertion must explain its checked invariant with a `SAFETY:` comment.

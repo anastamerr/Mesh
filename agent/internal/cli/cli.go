@@ -60,7 +60,7 @@ func Execute(ctx context.Context, args []string, input io.Reader, output, logs i
 			return err
 		}
 		if o.command == "run" {
-			return runner.Loop(ctx, &saved, store, client, inventory.Read, o.interval, logs)
+			return runNode(ctx, &saved, store, client, o, logs)
 		}
 		if err := runner.Once(ctx, &saved, store, client, inventory.Read); err != nil {
 			return err
