@@ -73,33 +73,31 @@ func New(server string) (*Client, error) {
 
 func (c *Client) Enroll(ctx context.Context, input Enrollment) (Identity, error) {
 	var identity Identity
-	err := c.post(ctx, "/v1/nodes/enroll", "", input, &identity)
+	err := c.request(ctx, http.MethodPost, "/v1/nodes/enroll", "", input, &identity)
 	return identity, err
 }
 
 func (c *Client) Heartbeat(ctx context.Context, id, credential string, sequence uint64, inventory Inventory) error {
-	var acknowledgement struct {
-		Accepted bool `json:"accepted"`
-	}
-	err := c.post(ctx, "/v1/nodes/"+url.PathEscape(id)+"/heartbeat", credential, struct {
+	return c.postAccepted(ctx, "/v1/nodes/"+url.PathEscape(id)+"/heartbeat", credential, struct {
 		Sequence  uint64    `json:"sequence"`
 		Inventory Inventory `json:"inventory"`
-	}{sequence, inventory}, &acknowledgement)
-	if err != nil {
+	}{sequence, inventory})
+}
+
+func (c *Client) postAccepted(ctx context.Context, path, credential string, body any) error {
+	var ack struct {
+		Accepted bool `json:"accepted"`
+	}
+	if err := c.request(ctx, http.MethodPost, path, credential, body, &ack); err != nil {
 		return err
 	}
-	if !acknowledgement.Accepted {
+	if !ack.Accepted {
 		return ErrProtocol
 	}
 	return nil
 }
 
-func (c *Client) post(ctx context.Context, path, credential string, body, output any) error {
-	return c.request(ctx, http.MethodPost, path, credential, body, output)
-}
-
 func (c *Client) request(ctx context.Context, method, path, credential string, body, output any) error {
-	var data []byte
 	var payload io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
@@ -133,7 +131,7 @@ func (c *Client) request(ctx context.Context, method, path, credential string, b
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes+1))
 		return &APIError{Status: response.StatusCode}
 	}
-	data, err = io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
 		return errors.New("control response interrupted")
 	}
@@ -148,9 +146,6 @@ func (c *Client) request(ctx context.Context, method, path, credential string, b
 
 // AuthorizeStorage validates one transfer request against current controller state.
 func (c *Client) AuthorizeStorage(ctx context.Context, id, credential, token, access string, collectionID *string) error {
-	var acknowledgement struct {
-		Accepted bool `json:"accepted"`
-	}
 	input := struct {
 		Token      string `json:"token"`
 		Permission struct {
@@ -160,11 +155,5 @@ func (c *Client) AuthorizeStorage(ctx context.Context, id, credential, token, ac
 	}{Token: token}
 	input.Permission.Access = access
 	input.Permission.CollectionID = collectionID
-	if err := c.post(ctx, "/v1/nodes/"+url.PathEscape(id)+"/storage-grants/validate", credential, input, &acknowledgement); err != nil {
-		return err
-	}
-	if !acknowledgement.Accepted {
-		return ErrProtocol
-	}
-	return nil
+	return c.postAccepted(ctx, "/v1/nodes/"+url.PathEscape(id)+"/storage-grants/validate", credential, input)
 }

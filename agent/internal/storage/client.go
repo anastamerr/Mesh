@@ -128,12 +128,15 @@ func (c *Client) json(ctx context.Context, method, path string, input, output an
 	}
 	defer res.Body.Close()
 	c.batch = res.Header.Get("Mesh-Transfer-Features") == batchFeature
-	return readJSON(res.Body, output)
+	return readJSON(ctx, res.Body, output)
 }
-func readJSON(r io.Reader, value any) error {
+func readJSON(ctx context.Context, r io.Reader, value any) error {
 	data, err := io.ReadAll(io.LimitReader(r, MaxManifestBytes+1))
 	if err != nil {
-		return err
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return &UnavailableError{Reason: "storage response interrupted; check the agent and network"}
 	}
 	if len(data) > MaxManifestBytes || json.Unmarshal(data, value) != nil {
 		return errors.New("invalid storage response")

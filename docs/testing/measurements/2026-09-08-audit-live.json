@@ -1,0 +1,60 @@
+{
+  "environment": "win32/x64, loopback, local disk",
+  "measurements": [
+    {
+      "fixture": "large",
+      "workflow": "managed-copy",
+      "elapsedMs": 1551.8231,
+      "firstFeedbackMs": 78.21939999999995,
+      "bytes": 134217728
+    },
+    {
+      "fixture": "large",
+      "workflow": "managed-get",
+      "elapsedMs": 891.9856,
+      "firstFeedbackMs": 76.78420000000006,
+      "bytes": 134217728
+    },
+    {
+      "fixture": "large",
+      "workflow": "repeat-copy",
+      "elapsedMs": 431.9852000000001,
+      "bytes": 134217728
+    },
+    {
+      "fixture": "small-files",
+      "workflow": "managed-copy",
+      "elapsedMs": 897.7572,
+      "firstFeedbackMs": 77.93089999999938,
+      "bytes": 2048000
+    },
+    {
+      "fixture": "small-files",
+      "workflow": "managed-get",
+      "elapsedMs": 383.7575000000006,
+      "firstFeedbackMs": 93.27580000000034,
+      "bytes": 2048000
+    },
+    {
+      "fixture": "small-files",
+      "workflow": "repeat-copy",
+      "elapsedMs": 176.3198000000002,
+      "bytes": 2048000
+    }
+  ],
+  "checks": [
+    "Named catalogue shows confirmed copies",
+    "Actionable missing-name and existing-destination errors",
+    "Real server kill: pending catalogue, resumed bytes, verified 256 MiB retrieval"
+  ],
+  "transcripts": {
+    "large": "Connecting to controller...\nScanning folder and calculating checksums...\nUploading: 0 B / 128.0 MiB (0%)\nVerifying: 128.0 MiB / 128.0 MiB (100%)\nComplete: 128.0 MiB / 128.0 MiB (100%)\n",
+    "small-files": "Connecting to controller...\nScanning folder and calculating checksums...\nUploading: 0 B / 2.0 MiB (0%)\nVerifying: 2.0 MiB / 2.0 MiB (100%)\nComplete: 2.0 MiB / 2.0 MiB (100%)\n",
+    "catalogue": "NAME         FILES  SIZE       STATE      COLLECTION\nlarge        1      128.0 MiB  confirmed  961d8a03754f261164c7fd0c0da179bd832256a457bff316fdc8bcae5100be94\nsmall-files  500    2.0 MiB    confirmed  f8bf52930fa5ef448ea81e8d62b815abf885688c37221f2261ec1148b02f874c\n",
+    "missing": "Connecting to controller...\ncollection not found; run catalog to see copies on this node\n",
+    "interrupted": "Connecting to controller...\nScanning folder and calculating checksums...\nUploading: 0 B / 256.0 MiB (0%)\nstorage connection failed; check the agent and network. Retrying in 1s (2/3); checking saved progress...\nstorage connection failed; check the agent and network. Retrying in 2s (3/3); checking saved progress...\ncopy interrupted; rerun the same command to resume: storage connection failed; check the agent and network\n",
+    "resumed": "Connecting to controller...\nScanning folder and calculating checksums...\nUploading: 8.0 MiB / 256.0 MiB (3%); 8.0 MiB already present\nUploading: 256.0 MiB / 256.0 MiB (100%); 156.8 MiB/s; 8.0 MiB already present\nVerifying: 256.0 MiB / 256.0 MiB (100%); 8.0 MiB already present\nComplete: 256.0 MiB / 256.0 MiB (100%); 8.0 MiB already present\n"
+  },
+  "result": "PASS",
+  "maxSampledServerRSSKiB": 0
+}

@@ -1,0 +1,72 @@
+[
+  {
+    "sample": "alternating-1-baseline",
+    "nanoseconds": 2286714867,
+    "requests": 11.0,
+    "allocatedBytes": 90147472,
+    "allocations": 128365
+  },
+  {
+    "sample": "alternating-1-optimized",
+    "nanoseconds": 1669035733,
+    "requests": 11.0,
+    "allocatedBytes": 73864018,
+    "allocations": 127955
+  },
+  {
+    "sample": "alternating-2-baseline",
+    "nanoseconds": 2289366300,
+    "requests": 11.0,
+    "allocatedBytes": 89910752,
+    "allocations": 128350
+  },
+  {
+    "sample": "alternating-2-optimized",
+    "nanoseconds": 1767935467,
+    "requests": 11.0,
+    "allocatedBytes": 73922765,
+    "allocations": 127973
+  },
+  {
+    "sample": "alternating-3-baseline",
+    "nanoseconds": 2392590033,
+    "requests": 11.0,
+    "allocatedBytes": 90209901,
+    "allocations": 128408
+  },
+  {
+    "sample": "alternating-3-optimized",
+    "nanoseconds": 1987453700,
+    "requests": 11.0,
+    "allocatedBytes": 73890104,
+    "allocations": 127905
+  },
+  {
+    "sample": "alternating-4-baseline",
+    "nanoseconds": 2441021467,
+    "requests": 11.0,
+    "allocatedBytes": 90003005,
+    "allocations": 128373
+  },
+  {
+    "sample": "alternating-4-optimized",
+    "nanoseconds": 1714056700,
+    "requests": 11.0,
+    "allocatedBytes": 73805928,
+    "allocations": 127970
+  },
+  {
+    "sample": "alternating-5-baseline",
+    "nanoseconds": 2298914533,
+    "requests": 11.0,
+    "allocatedBytes": 90193021,
+    "allocations": 128404
+  },
+  {
+    "sample": "alternating-5-optimized",
+    "nanoseconds": 1779247633,
+    "requests": 11.0,
+    "allocatedBytes": 73856896,
+    "allocations": 127979
+  }
+]

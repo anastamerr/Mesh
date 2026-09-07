@@ -1,0 +1,421 @@
+{
+  "environment": "Windows amd64; Intel i7-10750H; Go 1.27.1; local disk and HTTP loopback; no race instrumentation",
+  "baseline": "Preserved working tree before this audit, including earlier four-worker uploads and scan-buffer reuse. Same new benchmark fixtures compiled into both variants.",
+  "method": "Five paired samples, three iterations per sample; baseline first on odd rounds, optimized first on even rounds. Setup excluded, file syncs/checksums/SQLite FULL commits retained. All final samples included; earlier exploratory runs excluded as setup was ongoing.",
+  "summaries": [
+    {
+      "benchmark": "BenchmarkLargeFileTransfer-12",
+      "baseline": {
+        "nsPerOp": 561341433,
+        "bytesAllocatedPerOp": 85300757,
+        "allocationsPerOp": 3941
+      },
+      "optimized": {
+        "nsPerOp": 572958867,
+        "bytesAllocatedPerOp": 38719210,
+        "allocationsPerOp": 3633
+      }
+    },
+    {
+      "benchmark": "BenchmarkBatchJournalScaling/entries=128-12",
+      "baseline": {
+        "nsPerOp": 3342467,
+        "bytesAllocatedPerOp": 78661,
+        "allocationsPerOp": 352
+      },
+      "optimized": {
+        "nsPerOp": 3707433,
+        "bytesAllocatedPerOp": 76037,
+        "allocationsPerOp": 198
+      }
+    },
+    {
+      "benchmark": "BenchmarkBatchJournalScaling/entries=10000-12",
+      "baseline": {
+        "nsPerOp": 13572433,
+        "bytesAllocatedPerOp": 494352,
+        "allocationsPerOp": 30248
+      },
+      "optimized": {
+        "nsPerOp": 4255800,
+        "bytesAllocatedPerOp": 77141,
+        "allocationsPerOp": 209
+      }
+    },
+    {
+      "benchmark": "BenchmarkSmallFolderTransfer/legacy=false-12",
+      "baseline": {
+        "nsPerOp": 1079728700,
+        "bytesAllocatedPerOp": 73604448,
+        "allocationsPerOp": 127893
+      },
+      "optimized": {
+        "nsPerOp": 1052920100,
+        "bytesAllocatedPerOp": 66130962,
+        "allocationsPerOp": 122425
+      }
+    }
+  ],
+  "samples": [
+    {
+      "round": 1,
+      "variant": "baseline",
+      "benchmark": "BenchmarkLargeFileTransfer-12",
+      "iterations": 3,
+      "nsPerOp": 541450700,
+      "bytesAllocatedPerOp": 85268522,
+      "allocationsPerOp": 3942
+    },
+    {
+      "round": 1,
+      "variant": "baseline",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=128-12",
+      "iterations": 3,
+      "nsPerOp": 3274467,
+      "bytesAllocatedPerOp": 78661,
+      "allocationsPerOp": 352
+    },
+    {
+      "round": 1,
+      "variant": "baseline",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=10000-12",
+      "iterations": 3,
+      "nsPerOp": 13572433,
+      "bytesAllocatedPerOp": 494426,
+      "allocationsPerOp": 30249
+    },
+    {
+      "round": 1,
+      "variant": "baseline",
+      "benchmark": "BenchmarkSmallFolderTransfer/legacy=false-12",
+      "iterations": 3,
+      "nsPerOp": 1022440533,
+      "bytesAllocatedPerOp": 73604448,
+      "allocationsPerOp": 127893
+    },
+    {
+      "round": 1,
+      "variant": "optimized",
+      "benchmark": "BenchmarkLargeFileTransfer-12",
+      "iterations": 3,
+      "nsPerOp": 564653267,
+      "bytesAllocatedPerOp": 38719210,
+      "allocationsPerOp": 3622
+    },
+    {
+      "round": 1,
+      "variant": "optimized",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=128-12",
+      "iterations": 3,
+      "nsPerOp": 3815033,
+      "bytesAllocatedPerOp": 75765,
+      "allocationsPerOp": 198
+    },
+    {
+      "round": 1,
+      "variant": "optimized",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=10000-12",
+      "iterations": 3,
+      "nsPerOp": 4425867,
+      "bytesAllocatedPerOp": 77533,
+      "allocationsPerOp": 210
+    },
+    {
+      "round": 1,
+      "variant": "optimized",
+      "benchmark": "BenchmarkSmallFolderTransfer/legacy=false-12",
+      "iterations": 3,
+      "nsPerOp": 1032151267,
+      "bytesAllocatedPerOp": 66062802,
+      "allocationsPerOp": 122405
+    },
+    {
+      "round": 2,
+      "variant": "baseline",
+      "benchmark": "BenchmarkLargeFileTransfer-12",
+      "iterations": 3,
+      "nsPerOp": 561341433,
+      "bytesAllocatedPerOp": 85304562,
+      "allocationsPerOp": 3934
+    },
+    {
+      "round": 2,
+      "variant": "baseline",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=128-12",
+      "iterations": 3,
+      "nsPerOp": 3314400,
+      "bytesAllocatedPerOp": 78778,
+      "allocationsPerOp": 352
+    },
+    {
+      "round": 2,
+      "variant": "baseline",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=10000-12",
+      "iterations": 3,
+      "nsPerOp": 13394233,
+      "bytesAllocatedPerOp": 494352,
+      "allocationsPerOp": 30248
+    },
+    {
+      "round": 2,
+      "variant": "baseline",
+      "benchmark": "BenchmarkSmallFolderTransfer/legacy=false-12",
+      "iterations": 3,
+      "nsPerOp": 3069487000,
+      "bytesAllocatedPerOp": 73707218,
+      "allocationsPerOp": 127938
+    },
+    {
+      "round": 2,
+      "variant": "optimized",
+      "benchmark": "BenchmarkLargeFileTransfer-12",
+      "iterations": 3,
+      "nsPerOp": 620263033,
+      "bytesAllocatedPerOp": 38769624,
+      "allocationsPerOp": 3633
+    },
+    {
+      "round": 2,
+      "variant": "optimized",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=128-12",
+      "iterations": 3,
+      "nsPerOp": 3390900,
+      "bytesAllocatedPerOp": 76037,
+      "allocationsPerOp": 198
+    },
+    {
+      "round": 2,
+      "variant": "optimized",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=10000-12",
+      "iterations": 3,
+      "nsPerOp": 3609067,
+      "bytesAllocatedPerOp": 77570,
+      "allocationsPerOp": 211
+    },
+    {
+      "round": 2,
+      "variant": "optimized",
+      "benchmark": "BenchmarkSmallFolderTransfer/legacy=false-12",
+      "iterations": 3,
+      "nsPerOp": 1088629700,
+      "bytesAllocatedPerOp": 66128066,
+      "allocationsPerOp": 122425
+    },
+    {
+      "round": 3,
+      "variant": "baseline",
+      "benchmark": "BenchmarkLargeFileTransfer-12",
+      "iterations": 3,
+      "nsPerOp": 566576000,
+      "bytesAllocatedPerOp": 85300757,
+      "allocationsPerOp": 3941
+    },
+    {
+      "round": 3,
+      "variant": "baseline",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=128-12",
+      "iterations": 3,
+      "nsPerOp": 3369033,
+      "bytesAllocatedPerOp": 78997,
+      "allocationsPerOp": 353
+    },
+    {
+      "round": 3,
+      "variant": "baseline",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=10000-12",
+      "iterations": 3,
+      "nsPerOp": 14477133,
+      "bytesAllocatedPerOp": 494320,
+      "allocationsPerOp": 30248
+    },
+    {
+      "round": 3,
+      "variant": "baseline",
+      "benchmark": "BenchmarkSmallFolderTransfer/legacy=false-12",
+      "iterations": 3,
+      "nsPerOp": 1079728700,
+      "bytesAllocatedPerOp": 73641224,
+      "allocationsPerOp": 127927
+    },
+    {
+      "round": 3,
+      "variant": "optimized",
+      "benchmark": "BenchmarkLargeFileTransfer-12",
+      "iterations": 3,
+      "nsPerOp": 538144933,
+      "bytesAllocatedPerOp": 38746360,
+      "allocationsPerOp": 3643
+    },
+    {
+      "round": 3,
+      "variant": "optimized",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=128-12",
+      "iterations": 3,
+      "nsPerOp": 3476433,
+      "bytesAllocatedPerOp": 75770,
+      "allocationsPerOp": 198
+    },
+    {
+      "round": 3,
+      "variant": "optimized",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=10000-12",
+      "iterations": 3,
+      "nsPerOp": 4009167,
+      "bytesAllocatedPerOp": 77104,
+      "allocationsPerOp": 209
+    },
+    {
+      "round": 3,
+      "variant": "optimized",
+      "benchmark": "BenchmarkSmallFolderTransfer/legacy=false-12",
+      "iterations": 3,
+      "nsPerOp": 1052920100,
+      "bytesAllocatedPerOp": 66141165,
+      "allocationsPerOp": 122453
+    },
+    {
+      "round": 4,
+      "variant": "baseline",
+      "benchmark": "BenchmarkLargeFileTransfer-12",
+      "iterations": 3,
+      "nsPerOp": 558501233,
+      "bytesAllocatedPerOp": 85350826,
+      "allocationsPerOp": 3964
+    },
+    {
+      "round": 4,
+      "variant": "baseline",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=128-12",
+      "iterations": 3,
+      "nsPerOp": 3342467,
+      "bytesAllocatedPerOp": 78517,
+      "allocationsPerOp": 350
+    },
+    {
+      "round": 4,
+      "variant": "baseline",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=10000-12",
+      "iterations": 3,
+      "nsPerOp": 13258900,
+      "bytesAllocatedPerOp": 494317,
+      "allocationsPerOp": 30248
+    },
+    {
+      "round": 4,
+      "variant": "baseline",
+      "benchmark": "BenchmarkSmallFolderTransfer/legacy=false-12",
+      "iterations": 3,
+      "nsPerOp": 1047938667,
+      "bytesAllocatedPerOp": 73400290,
+      "allocationsPerOp": 127856
+    },
+    {
+      "round": 4,
+      "variant": "optimized",
+      "benchmark": "BenchmarkLargeFileTransfer-12",
+      "iterations": 3,
+      "nsPerOp": 572958867,
+      "bytesAllocatedPerOp": 38694269,
+      "allocationsPerOp": 3599
+    },
+    {
+      "round": 4,
+      "variant": "optimized",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=128-12",
+      "iterations": 3,
+      "nsPerOp": 3707433,
+      "bytesAllocatedPerOp": 76197,
+      "allocationsPerOp": 200
+    },
+    {
+      "round": 4,
+      "variant": "optimized",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=10000-12",
+      "iterations": 3,
+      "nsPerOp": 4255800,
+      "bytesAllocatedPerOp": 77101,
+      "allocationsPerOp": 209
+    },
+    {
+      "round": 4,
+      "variant": "optimized",
+      "benchmark": "BenchmarkSmallFolderTransfer/legacy=false-12",
+      "iterations": 3,
+      "nsPerOp": 1050669233,
+      "bytesAllocatedPerOp": 66337224,
+      "allocationsPerOp": 122481
+    },
+    {
+      "round": 5,
+      "variant": "baseline",
+      "benchmark": "BenchmarkLargeFileTransfer-12",
+      "iterations": 3,
+      "nsPerOp": 578258567,
+      "bytesAllocatedPerOp": 85275685,
+      "allocationsPerOp": 3936
+    },
+    {
+      "round": 5,
+      "variant": "baseline",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=128-12",
+      "iterations": 3,
+      "nsPerOp": 3618433,
+      "bytesAllocatedPerOp": 78570,
+      "allocationsPerOp": 351
+    },
+    {
+      "round": 5,
+      "variant": "baseline",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=10000-12",
+      "iterations": 3,
+      "nsPerOp": 13755533,
+      "bytesAllocatedPerOp": 494474,
+      "allocationsPerOp": 30248
+    },
+    {
+      "round": 5,
+      "variant": "baseline",
+      "benchmark": "BenchmarkSmallFolderTransfer/legacy=false-12",
+      "iterations": 3,
+      "nsPerOp": 1154001667,
+      "bytesAllocatedPerOp": 73448944,
+      "allocationsPerOp": 127881
+    },
+    {
+      "round": 5,
+      "variant": "optimized",
+      "benchmark": "BenchmarkLargeFileTransfer-12",
+      "iterations": 3,
+      "nsPerOp": 649246933,
+      "bytesAllocatedPerOp": 38709045,
+      "allocationsPerOp": 3644
+    },
+    {
+      "round": 5,
+      "variant": "optimized",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=128-12",
+      "iterations": 3,
+      "nsPerOp": 3805767,
+      "bytesAllocatedPerOp": 76053,
+      "allocationsPerOp": 198
+    },
+    {
+      "round": 5,
+      "variant": "optimized",
+      "benchmark": "BenchmarkBatchJournalScaling/entries=10000-12",
+      "iterations": 3,
+      "nsPerOp": 7768133,
+      "bytesAllocatedPerOp": 77141,
+      "allocationsPerOp": 209
+    },
+    {
+      "round": 5,
+      "variant": "optimized",
+      "benchmark": "BenchmarkSmallFolderTransfer/legacy=false-12",
+      "iterations": 3,
+      "nsPerOp": 1060947900,
+      "bytesAllocatedPerOp": 66130962,
+      "allocationsPerOp": 122378
+    }
+  ]
+}

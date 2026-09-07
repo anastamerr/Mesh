@@ -157,17 +157,23 @@ func uploadWithRecovery(ctx context.Context, client *storage.Client, folder *sto
 
 func getManaged(ctx context.Context, controller *control.Client, key, node string, o managedOptions, output, logs io.Writer) error {
 	var found *control.Collection
+	ambiguous := false
 	after := ""
+lookup:
 	for {
 		entries, err := controller.Collections(ctx, key, node, after)
 		if err != nil {
 			return err
 		}
 		for _, entry := range entries {
-			if entry.ID == o.collection || entry.Name == o.collection {
-				if found != nil {
-					return errors.New("collection name is ambiguous; use its full ID from catalog")
-				}
+			// An exact immutable ID wins over display names and needs no more pages.
+			if entry.ID == o.collection {
+				found = &entry
+				ambiguous = false
+				break lookup
+			}
+			if entry.Name == o.collection {
+				ambiguous = ambiguous || found != nil
 				found = &entry
 			}
 		}
@@ -175,6 +181,9 @@ func getManaged(ctx context.Context, controller *control.Client, key, node strin
 			break
 		}
 		after = entries[len(entries)-1].ID
+	}
+	if ambiguous {
+		return errors.New("collection name is ambiguous; use its full ID from catalog")
 	}
 	if found == nil {
 		return errors.New("collection not found; run catalog to see copies on this node")

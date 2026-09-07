@@ -141,7 +141,7 @@ func AuthorizedHandler(store *Store, authorize Authorizer, report PublicationRep
 		if !allow(w, r, "write", r.PathValue("id")) {
 			return
 		}
-		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, ChunkSize))
+		data, err := readUploadBody(http.MaxBytesReader(w, r.Body, ChunkSize), r.ContentLength)
 		if err != nil {
 			storageError(w, ErrInvalid)
 			return
@@ -197,4 +197,28 @@ func AuthorizedHandler(store *Store, authorize Authorizer, report PublicationRep
 		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// Known upload sizes need one allocation. Chunked legacy requests remain
+// bounded, and both paths reject extra bytes before any file is changed.
+func readUploadBody(body io.Reader, size int64) ([]byte, error) {
+	if size < 0 {
+		data, err := io.ReadAll(io.LimitReader(body, ChunkSize+1))
+		if len(data) > ChunkSize {
+			return nil, ErrInvalid
+		}
+		return data, err
+	}
+	if size > ChunkSize {
+		return nil, ErrInvalid
+	}
+	data := make([]byte, size)
+	if _, err := io.ReadFull(body, data); err != nil {
+		return nil, err
+	}
+	var extra [1]byte
+	if n, err := io.ReadFull(body, extra[:]); n != 0 || err != io.EOF {
+		return nil, ErrInvalid
+	}
+	return data, nil
 }

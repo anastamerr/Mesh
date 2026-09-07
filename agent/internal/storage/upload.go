@@ -123,7 +123,7 @@ func (c *Client) uploadFile(ctx context.Context, id string, index int, f *os.Fil
 		var ack struct {
 			Offset *int64 `json:"offset"`
 		}
-		err = readJSON(res.Body, &ack)
+		err = readJSON(ctx, res.Body, &ack)
 		res.Body.Close()
 		if err != nil {
 			return err

@@ -1,0 +1,11 @@
+goos: windows
+goarch: amd64
+pkg: mesh.local/agent/internal/storage
+cpu: Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz
+BenchmarkScan-12    	       3	 466618433 ns/op	   4.39 MB/s	17501000 B/op	   20072 allocs/op
+BenchmarkScan-12    	       3	 409876800 ns/op	   5.00 MB/s	17501482 B/op	   20070 allocs/op
+BenchmarkScan-12    	       3	 420318200 ns/op	   4.87 MB/s	17500861 B/op	   20069 allocs/op
+BenchmarkScan-12    	       3	 457412367 ns/op	   4.48 MB/s	17500781 B/op	   20068 allocs/op
+BenchmarkScan-12    	       3	 495296333 ns/op	   4.13 MB/s	17501669 B/op	   20073 allocs/op
+PASS
+ok  	mesh.local/agent/internal/storage	18.801s

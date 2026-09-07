@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -265,6 +267,46 @@ func TestBatchJournalFailureRollsBackAllOffsets(t *testing.T) {
 	}
 }
 
+func TestWriteBatchParallelFilesWithSharedParents(t *testing.T) {
+	s := openStore(t, privateDir(t))
+	defer s.Close()
+	m := Manifest{Version: 1, Entries: []Entry{{Path: "shared", Directory: true}}}
+	indices := make([]int, 0, 16)
+	var payload bytes.Buffer
+	for i := 0; i < 8; i++ {
+		contents := bytes.Repeat([]byte{byte(i + 1)}, 4<<10)
+		m.Entries = append(m.Entries, entry(fmt.Sprintf("shared/%02d", i), contents))
+		indices = append(indices, len(m.Entries)-1)
+		payload.Write(contents)
+	}
+	m.Entries = append(m.Entries, Entry{Path: "shared/deep", Directory: true})
+	for i := 0; i < 8; i++ {
+		contents := bytes.Repeat([]byte{byte(i + 9)}, 4<<10)
+		m.Entries = append(m.Entries, entry(fmt.Sprintf("shared/deep/%02d", i), contents))
+		indices = append(indices, len(m.Entries)-1)
+		payload.Write(contents)
+	}
+	p := begin(t, s, m)
+	if _, err := s.writeBatch(testContext, p.ID, m, indices, payload.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Finish(testContext, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, index := range indices {
+		f, e, err := s.Read(testContext, p.ID, index)
+		if err == nil {
+			err = verify(testContext, f, e)
+		}
+		if f != nil {
+			err = errors.Join(err, f.Close())
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", m.Entries[index].Path, err)
+		}
+	}
+}
+
 func TestBatchPayloadBudget(t *testing.T) {
 	m := Manifest{Version: 1, Entries: make([]Entry, 20)}
 	for i := range m.Entries {
@@ -287,5 +329,140 @@ func TestBatchPayloadBudget(t *testing.T) {
 	}
 	if len(batchIndices(m, 0, nil)) != 0 {
 		t.Fatal("large file entered batch")
+	}
+}
+
+func TestWriteBatchFilesBoundsWorkersAndCleansUpAfterFirstError(t *testing.T) {
+	const fileCount = 12
+	m := Manifest{Version: 1, Entries: make([]Entry, fileCount)}
+	indices := make([]int, fileCount)
+	data := make([]byte, fileCount)
+	for i := range m.Entries {
+		m.Entries[i] = Entry{Path: fmt.Sprintf("%02d", i), Size: 1}
+		indices[i] = i
+	}
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+
+	wantErr := errors.New("injected write failure")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ready := make(chan struct{})
+	var readyOnce sync.Once
+	var active atomic.Int32
+	var peak atomic.Int32
+	writer := func(ctx context.Context, _ *os.Root, e Entry, _ int64, _ []byte) (bool, error) {
+		n := active.Add(1)
+		defer active.Add(-1)
+		for old := peak.Load(); n > old && !peak.CompareAndSwap(old, n); old = peak.Load() {
+		}
+		if n == maxBatchWriteWorkers {
+			readyOnce.Do(func() { close(ready) })
+		}
+		select {
+		case <-ready:
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+		if e.Path == "00" {
+			return false, wantErr
+		}
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
+	if err := writeBatchFiles(ctx, root, m, indices, data, maxBatchWriteWorkers, writer); !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want %v", err, wantErr)
+	}
+	if got := peak.Load(); got != maxBatchWriteWorkers {
+		t.Fatalf("peak workers = %d, want %d", got, maxBatchWriteWorkers)
+	}
+	if got := active.Load(); got != 0 {
+		t.Fatalf("%d workers still active after return", got)
+	}
+}
+
+func TestWriteBatchFilesCancellationWaitsForWorkers(t *testing.T) {
+	m := Manifest{Version: 1, Entries: make([]Entry, maxBatchWriteWorkers)}
+	indices := make([]int, len(m.Entries))
+	data := make([]byte, len(m.Entries))
+	for i := range m.Entries {
+		m.Entries[i] = Entry{Path: fmt.Sprint(i), Size: 1}
+		indices[i] = i
+	}
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	started := make(chan struct{}, maxBatchWriteWorkers)
+	var active atomic.Int32
+	writer := func(ctx context.Context, _ *os.Root, _ Entry, _ int64, _ []byte) (bool, error) {
+		active.Add(1)
+		defer active.Add(-1)
+		started <- struct{}{}
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- writeBatchFiles(ctx, root, m, indices, data, maxBatchWriteWorkers, writer)
+	}()
+	for range maxBatchWriteWorkers {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatal("workers did not start before timeout")
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want context cancellation", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("workers did not exit after cancellation")
+	}
+	if got := active.Load(); got != 0 {
+		t.Fatalf("%d workers still active after return", got)
+	}
+}
+
+// Real file creation, hashing, and fsync through the same scheduler with one
+// worker versus the production bound. Historical end-to-end results provide
+// the unchanged serial-loop baseline.
+func BenchmarkWriteBatchFiles(b *testing.B) {
+	const fileCount = 64
+	m := Manifest{Version: 1, Entries: make([]Entry, fileCount)}
+	indices := make([]int, fileCount)
+	var payload bytes.Buffer
+	for i := range m.Entries {
+		contents := bytes.Repeat([]byte{byte(i)}, 4<<10)
+		m.Entries[i] = entry(fmt.Sprintf("%02d", i), contents)
+		indices[i] = i
+		payload.Write(contents)
+	}
+	for _, workers := range []int{1, maxBatchWriteWorkers} {
+		b.Run(fmt.Sprintf("workers=%d", workers), func(b *testing.B) {
+			b.SetBytes(int64(payload.Len()))
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				root, err := os.OpenRoot(b.TempDir())
+				if err == nil {
+					err = writeBatchFiles(context.Background(), root, m, indices, payload.Bytes(), workers, writeFile)
+				}
+				if root != nil {
+					err = errors.Join(err, root.Close())
+				}
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

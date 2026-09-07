@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,14 @@ import (
 )
 
 func TestUploadRecoversLostBatchAcknowledgement(t *testing.T) {
+	for _, partialResponse := range []bool{false, true} {
+		t.Run(fmt.Sprintf("partial-response=%t", partialResponse), func(t *testing.T) {
+			testUploadRecoversLostBatchAcknowledgement(t, partialResponse)
+		})
+	}
+}
+
+func testUploadRecoversLostBatchAcknowledgement(t *testing.T, partialResponse bool) {
 	root := filepath.Join(t.TempDir(), "store")
 	store, err := storage.Open(root)
 	if err != nil {
@@ -37,6 +46,12 @@ func TestUploadRecoversLostBatchAcknowledgement(t *testing.T) {
 			handler.ServeHTTP(recorder, r)
 			if recorder.Code != 200 {
 				t.Errorf("commit failed: %d", recorder.Code)
+			}
+			if partialResponse {
+				w.Header().Set("Content-Length", "100")
+				w.WriteHeader(http.StatusOK)
+				io.WriteString(w, "{")
+				w.(http.Flusher).Flush()
 			}
 			conn, _, err := w.(http.Hijacker).Hijack()
 			if err != nil {

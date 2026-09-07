@@ -10,13 +10,22 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const (
-	maxBatchFiles     = 128
-	maxBatchFileBytes = 256 << 10
-	batchFeature      = "batch-v1"
+	maxBatchFiles        = 128
+	maxBatchFileBytes    = 256 << 10
+	maxBatchWriteWorkers = 4
+	batchFeature         = "batch-v1"
 )
+
+type batchWriteJob struct {
+	entry Entry
+	data  []byte
+}
+
+type batchFileWriter func(context.Context, *os.Root, Entry, int64, []byte) (bool, error)
 
 // Batches contain whole small files in manifest order. Large or partially sent
 // files retain the chunk protocol; batch offsets commit only after all files sync.
@@ -88,33 +97,31 @@ func (s *Store) batchHandler(w http.ResponseWriter, r *http.Request) {
 	if reading {
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
-		func() {
-			root, err := s.root.OpenRoot("collections/" + id)
+		root, err := s.root.OpenRoot("collections/" + id)
+		if err != nil {
+			panic(http.ErrAbortHandler)
+		}
+		defer func() {
+			if root.Close() != nil {
+				panic(http.ErrAbortHandler)
+			}
+		}()
+		for _, index := range indices {
+			e := m.Entries[index]
+			f, err := regular(root, e.Path, os.O_RDONLY)
 			if err != nil {
 				panic(http.ErrAbortHandler)
 			}
-			defer func() {
-				if root.Close() != nil {
-					panic(http.ErrAbortHandler)
-				}
-			}()
-			for _, index := range indices {
-				e := m.Entries[index]
-				f, err := regular(root, e.Path, os.O_RDONLY)
-				if err != nil {
-					panic(http.ErrAbortHandler)
-				}
-				_, err = io.CopyN(w, f, e.Size)
-				closeErr := f.Close()
-				if err != nil || closeErr != nil {
-					panic(http.ErrAbortHandler)
-				}
+			_, err = io.CopyN(w, f, e.Size)
+			closeErr := f.Close()
+			if err != nil || closeErr != nil {
+				panic(http.ErrAbortHandler)
 			}
-		}()
+		}
 		return
 	}
-	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, size))
-	if err != nil || int64(len(data)) != size {
+	data, err := readUploadBody(http.MaxBytesReader(w, r.Body, size), size)
+	if err != nil {
 		storageError(w, ErrInvalid)
 		return
 	}
@@ -141,14 +148,20 @@ func (s *Store) writeBatch(ctx context.Context, id string, m Manifest, indices [
 	if complete {
 		return nil, ErrConflict
 	}
-	p, err := s.progress(ctx, id, m, false)
-	if err != nil {
+	// Validate only this batch using the (collection, ordinal) primary key.
+	// Begin and Finish still validate the complete durable progress document.
+	args := make([]any, 1, len(indices)+1)
+	args[0] = id
+	for _, index := range indices {
+		args = append(args, index)
+	}
+	var pending int
+	query := "SELECT count(*) FROM files WHERE collection=? AND offset=0 AND ordinal IN (" + strings.TrimSuffix(strings.Repeat("?,", len(indices)), ",") + ")"
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&pending); err != nil {
 		return nil, err
 	}
-	for _, index := range indices {
-		if p.Offsets[index] != 0 {
-			return nil, ErrConflict
-		}
+	if pending != len(indices) {
+		return nil, ErrConflict
 	}
 	root, err := s.staging(id)
 	if err != nil {
@@ -159,10 +172,6 @@ func (s *Store) writeBatch(ctx context.Context, id string, m Manifest, indices [
 	parents := make(map[string]bool)
 	for i, index := range indices {
 		e := m.Entries[index]
-		if _, err := writeFile(ctx, root, e, 0, data[:e.Size]); err != nil {
-			return nil, err
-		}
-		data = data[e.Size:]
 		offsets[i] = e.Size
 		for dir := path.Dir(e.Path); ; dir = path.Dir(dir) {
 			parents[dir] = true
@@ -170,6 +179,9 @@ func (s *Store) writeBatch(ctx context.Context, id string, m Manifest, indices [
 				break
 			}
 		}
+	}
+	if err := writeBatchFiles(ctx, root, m, indices, data, maxBatchWriteWorkers, writeFile); err != nil {
+		return nil, err
 	}
 	// Sync every touched directory after all its entries have been created.
 	for dir := range parents {
@@ -182,8 +194,13 @@ func (s *Store) writeBatch(ctx context.Context, id string, m Manifest, indices [
 		return nil, err
 	}
 	defer tx.Rollback()
+	statement, err := tx.PrepareContext(ctx, "UPDATE files SET offset=? WHERE collection=? AND ordinal=?")
+	if err != nil {
+		return nil, err
+	}
+	defer statement.Close()
 	for i, index := range indices {
-		if _, err = tx.ExecContext(ctx, "UPDATE files SET offset=? WHERE collection=? AND ordinal=?", offsets[i], id, index); err != nil {
+		if _, err = statement.ExecContext(ctx, offsets[i], id, index); err != nil {
 			return nil, err
 		}
 	}
@@ -193,8 +210,67 @@ func (s *Store) writeBatch(ctx context.Context, id string, m Manifest, indices [
 	return offsets, nil
 }
 
+// writeBatchFiles bounds concurrent file syncs while the caller retains the
+// store lock. On the first failure it cancels pending work and waits for every
+// worker to close its file before returning.
+func writeBatchFiles(ctx context.Context, root *os.Root, m Manifest, indices []int, data []byte, workerLimit int, write batchFileWriter) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	jobs := make(chan batchWriteJob)
+	workerCount := min(workerLimit, len(indices))
+	var workers sync.WaitGroup
+	var failOnce sync.Once
+	var firstErr error
+	fail := func(err error) {
+		if err == nil {
+			return
+		}
+		failOnce.Do(func() {
+			firstErr = err
+			cancel()
+		})
+	}
+	worker := func() {
+		defer workers.Done()
+		for job := range jobs {
+			if ctx.Err() != nil {
+				continue
+			}
+			_, err := write(ctx, root, job.entry, 0, job.data)
+			fail(err)
+		}
+	}
+	workers.Add(workerCount)
+	for range workerCount {
+		go worker()
+	}
+
+sendJobs:
+	for _, index := range indices {
+		e := m.Entries[index]
+		job := batchWriteJob{entry: e, data: data[:e.Size]}
+		data = data[e.Size:]
+		select {
+		case jobs <- job:
+		case <-ctx.Done():
+			break sendJobs
+		}
+	}
+	close(jobs)
+	workers.Wait()
+	if firstErr != nil {
+		return firstErr
+	}
+	return ctx.Err()
+}
+
 func (c *Client) uploadBatch(ctx context.Context, root *os.Root, m Manifest, id string, indices []int) error {
-	var data bytes.Buffer
+	var size int64
+	for _, index := range indices {
+		size += m.Entries[index].Size
+	}
+	data := make([]byte, size)
+	var offset int64
 	for _, index := range indices {
 		e := m.Entries[index]
 		f, err := regular(root, e.Path, os.O_RDONLY)
@@ -206,14 +282,15 @@ func (c *Client) uploadBatch(ctx context.Context, root *os.Root, m Manifest, id 
 			err = errors.New("source size changed; retry to scan a fresh copy")
 		}
 		if err == nil {
-			_, err = io.CopyN(&data, f, e.Size)
+			_, err = io.ReadFull(&contextReader{ctx: ctx, r: f}, data[offset:offset+e.Size])
 		}
 		err = errors.Join(err, f.Close())
 		if err != nil {
 			return err
 		}
+		offset += e.Size
 	}
-	res, err := c.request(ctx, "PUT", batchPath(id, indices), bytes.NewReader(data.Bytes()), nil)
+	res, err := c.request(ctx, "PUT", batchPath(id, indices), bytes.NewReader(data), nil)
 	if err != nil {
 		return err
 	}
@@ -221,7 +298,7 @@ func (c *Client) uploadBatch(ctx context.Context, root *os.Root, m Manifest, id 
 	var ack struct {
 		Offsets []int64 `json:"offsets"`
 	}
-	if err := readJSON(res.Body, &ack); err != nil {
+	if err := readJSON(ctx, res.Body, &ack); err != nil {
 		return err
 	}
 	if len(ack.Offsets) != len(indices) {

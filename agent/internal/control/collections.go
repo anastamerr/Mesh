@@ -50,39 +50,21 @@ func (c *Client) ResolveNode(ctx context.Context, key, selector string) (string,
 	return found, nil
 }
 func (c *Client) RegisterCollection(ctx context.Context, key, node string, entry Collection) error {
-	var ack struct {
-		Accepted bool `json:"accepted"`
-	}
 	body := struct {
 		ID         string `json:"id"`
 		Name       string `json:"name"`
 		FileCount  int    `json:"fileCount"`
 		TotalBytes int64  `json:"totalBytes"`
 	}{entry.ID, entry.Name, entry.FileCount, entry.TotalBytes}
-	if err := c.post(ctx, "/v1/nodes/"+url.PathEscape(node)+"/collections", key, body, &ack); err != nil {
-		return err
-	}
-	if !ack.Accepted {
-		return ErrProtocol
-	}
-	return nil
+	return c.postAccepted(ctx, "/v1/nodes/"+url.PathEscape(node)+"/collections", key, body)
 }
 func (c *Client) ConfirmCollection(ctx context.Context, node, key, id string, count int, total int64) error {
-	var ack struct {
-		Accepted bool `json:"accepted"`
-	}
 	body := struct {
 		ID         string `json:"id"`
 		FileCount  int    `json:"fileCount"`
 		TotalBytes int64  `json:"totalBytes"`
 	}{id, count, total}
-	if err := c.post(ctx, "/v1/nodes/"+url.PathEscape(node)+"/collections/confirm", key, body, &ack); err != nil {
-		return err
-	}
-	if !ack.Accepted {
-		return ErrProtocol
-	}
-	return nil
+	return c.postAccepted(ctx, "/v1/nodes/"+url.PathEscape(node)+"/collections/confirm", key, body)
 }
 func (c *Client) Collections(ctx context.Context, key, node, after string) ([]Collection, error) {
 	var entries []Collection
@@ -109,7 +91,7 @@ func (c *Client) StorageGrant(ctx context.Context, key, node, access string, id 
 		Access       string  `json:"access"`
 		CollectionID *string `json:"collectionId"`
 	}{access, id}
-	if err := c.post(ctx, "/v1/nodes/"+url.PathEscape(node)+"/storage-grants", key, body, &grant); err != nil {
+	if err := c.request(ctx, http.MethodPost, "/v1/nodes/"+url.PathEscape(node)+"/storage-grants", key, body, &grant); err != nil {
 		return "", err
 	}
 	if !grantToken.MatchString(grant.Token) || !grant.ExpiresAt.After(time.Now()) {

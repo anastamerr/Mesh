@@ -25,24 +25,16 @@ func receiveBatch(ctx context.Context, cancel context.CancelFunc, body io.ReadCl
 	jobs := make(chan batchReceiveJob)
 	var workers sync.WaitGroup
 	var failOnce sync.Once
-	var errorMu sync.Mutex
 	var firstErr error
 	fail := func(err error) {
 		if err == nil {
 			return
 		}
 		failOnce.Do(func() {
-			errorMu.Lock()
 			firstErr = err
-			errorMu.Unlock()
 			cancel()
 			_ = body.Close()
 		})
-	}
-	getError := func() error {
-		errorMu.Lock()
-		defer errorMu.Unlock()
-		return firstErr
 	}
 
 	var progressMu sync.Mutex
@@ -83,11 +75,11 @@ func receiveBatch(ctx context.Context, cancel context.CancelFunc, body io.ReadCl
 		case <-ctx.Done():
 			fail(ctx.Err())
 		}
-		if getError() != nil {
+		if ctx.Err() != nil {
 			break
 		}
 	}
-	if getError() == nil {
+	if ctx.Err() == nil {
 		var extra [1]byte
 		n, err := io.ReadFull(body, extra[:])
 		if n != 0 || err != io.EOF {
@@ -100,5 +92,9 @@ func receiveBatch(ctx context.Context, cancel context.CancelFunc, body io.ReadCl
 	}
 	close(jobs)
 	workers.Wait()
-	return getError()
+	// Wait publishes worker errors; the producer only observes cancellation.
+	if firstErr != nil {
+		return firstErr
+	}
+	return ctx.Err()
 }

@@ -1,0 +1,19 @@
+goos: windows
+goarch: amd64
+pkg: mesh.local/agent/internal/storage
+cpu: Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz
+BenchmarkWriteBatchFiles/workers=1-12                	       3	 179120867 ns/op	   1.46 MB/s	 2227378 B/op	    2717 allocs/op
+BenchmarkWriteBatchFiles/workers=1-12                	       3	 166067733 ns/op	   1.58 MB/s	 2227517 B/op	    2718 allocs/op
+BenchmarkWriteBatchFiles/workers=1-12                	       3	 181963133 ns/op	   1.44 MB/s	 2227421 B/op	    2717 allocs/op
+BenchmarkWriteBatchFiles/workers=1-12                	       3	 248295933 ns/op	   1.06 MB/s	 2227112 B/op	    2714 allocs/op
+BenchmarkWriteBatchFiles/workers=1-12                	       3	 167470467 ns/op	   1.57 MB/s	 2227277 B/op	    2715 allocs/op
+BenchmarkWriteBatchFiles/workers=4-12                	       3	  73511667 ns/op	   3.57 MB/s	 2227416 B/op	    2718 allocs/op
+BenchmarkWriteBatchFiles/workers=4-12                	       3	  74515533 ns/op	   3.52 MB/s	 2227464 B/op	    2717 allocs/op
+BenchmarkWriteBatchFiles/workers=4-12                	       3	  73884000 ns/op	   3.55 MB/s	 2227224 B/op	    2716 allocs/op
+BenchmarkWriteBatchFiles/workers=4-12                	       3	  66823167 ns/op	   3.92 MB/s	 2227368 B/op	    2717 allocs/op
+BenchmarkWriteBatchFiles/workers=4-12                	       3	  71608333 ns/op	   3.66 MB/s	 2227474 B/op	    2720 allocs/op
+BenchmarkScan-12                                     	       3	 433203033 ns/op	   4.73 MB/s	 1118522 B/op	   19554 allocs/op
+BenchmarkScan-12                                     	       3	 441186633 ns/op	   4.64 MB/s	 1140349 B/op	   19555 allocs/op
+BenchmarkScan-12                                     	       3	 418099800 ns/op	   4.90 MB/s	 1096610 B/op	   19553 allocs/op
+BenchmarkScan-12                                     	       3	 433285767 ns/op	   4.73 MB/s	 1140333 B/op	   19555 allocs/op
+BenchmarkScan-12                                     	       3	 412054667 ns/op	   4.97 MB/s	 1140450 B/op	   19556 allocs/op

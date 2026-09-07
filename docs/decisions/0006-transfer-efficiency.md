@@ -1,6 +1,6 @@
 # ADR 0006: Bounded file batches and foreground node operation
 
-Status: implemented; Windows runtime revalidation pending.
+Status: implemented; local Windows runtime checks pass. Remote-device and service lifecycle validation remain pending.
 
 ## Transfer protocol
 
@@ -12,11 +12,19 @@ The handler authorizes the node, collection and access before reading file bytes
 
 For upload acknowledgements, each file is written, synced and verified. Touched directories are synced after the batch's entries exist. SQLite then commits all batch offsets in one FULL-synchronous transaction. A failed or interrupted batch before that commit has no acknowledged offsets; any disk tails are overwritten on retry. A lost response after commit is recovered by reading durable progress, not blindly replaying the write. Final publication still verifies the collection and performs the existing publication protocol. Windows directory-sync limitations remain unchanged; this is not a power-loss certification.
 
+Batch upload overlaps the file write/sync/verification stage with at most four workers. Jobs reference disjoint slices of the existing bounded request body rather than copying payloads. The store mutation lock remains held through the entire batch, including directory syncs and the journal commit. A worker failure cancels pending jobs and all workers finish before the staging root is closed or another mutation can begin. No offsets commit until every file worker succeeds. This improves concurrency within a batch; it does not allow independent uploads to mutate the store concurrently.
+
+Source scanning reuses one lazily allocated 32 KiB hashing buffer per scan. It remains sequential, retains per-file progress and cancellation checks, and does not cache file hashes across copies.
+
+Known-size upload bodies use one exact allocation; unknown-length legacy requests retain the same 4 MiB bound. Batch offset checks query only the selected file keys, and a prepared statement applies their updates within the existing atomic transaction. Begin and Finish retain full progress validation. See the [codebase audit and measurements](../testing/codebase-audit.md).
+
 Batch retrieval opens the published collection root once per request. The client reads that single response sequentially and hands complete file buffers to at most four verification/write/sync workers through an unbuffered channel. Four worker buffers plus the producer buffer use at most 1.25 MiB at the existing file-size limit, excluding other runtime allocations. Progress callbacks remain serialized. A worker failure cancels the request and closes the body; all workers finish before destination cleanup. There are no concurrent credential renewals or extra network streams. Exact framing and checksums remain required.
 
 ## Recovery and feedback
 
 Managed copies retry transient connection and HTTP 503 failures up to three total attempts, waiting one then two seconds. Each attempt re-reads durable offsets using the already scanned manifest. Permanent denial, malformed acknowledgements and checksum conflicts are not automatically retried. Cancellation interrupts the wait. Download resumption across failures/process restarts remains future work; ordinary failed downloads clean partial output.
+
+Transient connection failures include interrupted JSON response bodies after headers have arrived. Such a response may follow a durable commit, so recovery still reconciles saved offsets rather than replaying an uncertain write.
 
 Structured response headers distinguish admission pressure from unavailable controller authorization. Messages give the next action without dumping remote bodies or credentials. Scanning reports bytes hashed and completed file counts. Transfer progress includes measured average speed and an approximate remaining time, excluding bytes reused at the start of that attempt. This is phase progress, not a promise of completion time.
 

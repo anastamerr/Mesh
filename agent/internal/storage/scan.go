@@ -20,6 +20,7 @@ func Scan(ctx context.Context, root *os.Root) (Manifest, error) {
 }
 func scan(ctx context.Context, root *os.Root, progress func(TransferEvent)) (Manifest, error) {
 	m := Manifest{Version: 1, Entries: []Entry{}}
+	var copyBuffer []byte
 	var hashed int64
 	files := 0
 	err := fs.WalkDir(root.FS(), ".", func(name string, d fs.DirEntry, walkErr error) error {
@@ -57,13 +58,16 @@ func scan(ctx context.Context, root *os.Root, progress func(TransferEvent)) (Man
 		if err != nil {
 			return err
 		}
+		if copyBuffer == nil {
+			copyBuffer = make([]byte, 32*1024)
+		}
 		h := sha256.New()
-		n, err := io.Copy(&progressWriter{writer: h, progress: func(n int64) {
+		n, err := io.CopyBuffer(&progressWriter{writer: h, progress: func(n int64) {
 			hashed += n
 			if progress != nil {
 				progress(TransferEvent{Phase: "Scanning", Completed: hashed, Files: files})
 			}
-		}}, &contextReader{ctx: ctx, r: io.LimitReader(f, MaxFileBytes+1)})
+		}}, &contextReader{ctx: ctx, r: io.LimitReader(f, MaxFileBytes+1)}, copyBuffer)
 		err = errors.Join(err, f.Close())
 		if err != nil {
 			return err
