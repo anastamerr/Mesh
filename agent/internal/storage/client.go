@@ -56,6 +56,10 @@ func ValidKey(key string) bool {
 	return true
 }
 func (c *Client) request(ctx context.Context, method, path string, body io.Reader, offset *int64) (*http.Response, error) {
+	return c.requestRange(ctx, method, path, body, offset, "")
+}
+
+func (c *Client) requestRange(ctx context.Context, method, path string, body io.Reader, offset *int64, byteRange string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
 	if err != nil {
 		return nil, err
@@ -66,6 +70,9 @@ func (c *Client) request(ctx context.Context, method, path string, body io.Reade
 		req.Header.Set("Content-Type", "application/octet-stream")
 	} else {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if byteRange != "" {
+		req.Header.Set("Range", byteRange)
 	}
 	res, err := c.http.Do(req)
 	if err == nil && res.StatusCode == http.StatusUnauthorized && c.RenewCredential != nil {
@@ -96,7 +103,11 @@ func (c *Client) request(ctx context.Context, method, path string, body io.Reade
 		}
 		return nil, &UnavailableError{Reason: "storage connection failed; check the agent and network"}
 	}
-	if res.StatusCode != 200 {
+	expectedStatus := http.StatusOK
+	if byteRange != "" {
+		expectedStatus = http.StatusPartialContent
+	}
+	if res.StatusCode != expectedStatus && !(byteRange != "" && res.StatusCode == http.StatusOK) {
 		defer res.Body.Close()
 		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4096))
 		if res.StatusCode == 503 {

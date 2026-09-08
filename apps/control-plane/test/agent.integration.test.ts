@@ -3,7 +3,7 @@ import { storageFlow } from './storage-flow';
 import { strict as assert } from 'node:assert';
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { test } from 'node:test';
@@ -48,9 +48,9 @@ test('real agent enrolls, persists sequence across processes/controller restart,
     await admin.query(`CREATE SCHEMA ${schema}`);
     const initial = new Pool({ connectionString, options: `-c search_path=${schema}` });
     try {
-      await initial.query(await readFile(resolve(__dirname, '../migrations/001_nodes.sql'), 'utf8'));
-      await initial.query(await readFile(resolve(__dirname, '../migrations/002_storage_grants.sql'), 'utf8'));
-      await initial.query(await readFile(resolve(__dirname, '../migrations/003_collections.sql'), 'utf8'));
+      for (const name of (await readdir(resolve(__dirname, '../migrations'))).filter(name => name.endsWith('.sql')).sort()) {
+        await initial.query(await readFile(resolve(__dirname, '../migrations', name), 'utf8'));
+      }
     }
     finally { await initial.end(); }
     const url = await start();

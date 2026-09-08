@@ -58,3 +58,6 @@ Details and consistency limits: [ADR 0005](../docs/decisions/0005-collection-wor
 ## Native storage batching
 
 Agents advertise `Mesh-Transfer-Features: batch-v1`. Negotiated clients use `GET`/`PUT /v1/collections/{id}/batch?indices=...` for strictly ordered small-file indices, bounded to 128 files, 256 KiB per file and 4 MiB total. Upload acknowledgements contain all committed `offsets`. Each request is scoped and authorized, and file checksums remain mandatory. Clients fall back to individual file endpoints when the feature is absent. See [ADR 0006](../docs/decisions/0006-transfer-efficiency.md) for durability and compatibility semantics.
+# Pairing and remote transport
+
+See [paired remote storage](../docs/remote-access.md) for deployment, CLI flow, authorization boundaries and recovery guarantees. Pairing uses `POST /v1/pairing-challenges`, operator listing/approval, and proof-authenticated polling. `GET /v1/network` publishes the relay origin; operator `GET /v1/nodes/:id/connection` returns the paired key fingerprint. Active paired devices renew through `POST /v1/nodes/:id/renew`. `POST /v1/nodes/:id/relay-tickets` exchanges a device credential or storage grant for a role-bound routing ticket; only the separate relay service credential can call `POST /v1/relay/authorize`. Storage authorization remains inside the end-to-end TLS tunnel.

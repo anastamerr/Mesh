@@ -37,12 +37,15 @@ jobs:
           cache-dependency-path: agent/go.sum
       - run: go build -o bin/mesh-agent ./cmd/mesh-agent
         working-directory: agent
+      - run: go build -o bin/mesh-relay ./cmd/mesh-relay
+        working-directory: agent
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run db:migrate
       - run: npm run db:migrate
       - run: npm test
       - run: npm run build
+      - run: npm run test:remote
   native:
     strategy:
       matrix:

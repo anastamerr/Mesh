@@ -10,7 +10,7 @@ Follow [the engineering standards](docs/engineering-standards.md) for modularity
 
 Backend and first working native-agent slice. Implemented: PostgreSQL migrations, operator-authorized enrollment token creation, atomic one-use node enrollment, hashed expiring node credentials, validated heartbeats, observed presence, listing, revocation, and persisted lifecycle audit events.
 
-The Go agent enrolls, stores its identity, reports real CPU/RAM inventory, and sends heartbeats with durable sequences and reconnect backoff. The Linux executor remains a skeleton. Native storage now supports direct authenticated folder uploads, durable resumption, checksum verification, listing and retrieval. Enrolled storage validates short-lived, node/collection-scoped permissions with the controller on every request; shared storage keys are loopback-only development mode. See [the authorized storage workflow](docs/decisions/0004-storage-authorization.md). No Windows service, WSL provisioning, Docker execution, remote tunnel, accounts, or UI exists yet. See [agent commands and guarantees](agent/README.md).
+The Go agent enrolls, stores its identity, reports real CPU/RAM inventory, and sends heartbeats with durable sequences and reconnect backoff. Native storage supports authenticated folder uploads and resumable retrieval, checksum verification and listing. Paired devices can use an outbound HTTPS relay with end-to-end device-key verification; see [remote setup, trust and validation](docs/remote-access.md). Enrolled storage validates short-lived, node/collection-scoped permissions with the controller on every request; shared storage keys are loopback-only development mode. The Linux executor remains a skeleton. Windows service installation, WSL provisioning, Docker execution, accounts and UI remain future work. See [agent commands and guarantees](agent/README.md).
 
 ## Run an enrolled node
 
@@ -18,7 +18,7 @@ The Go agent enrolls, stores its identity, reports real CPU/RAM inventory, and s
 mesh-agent run --root /absolute/path/to/mesh-files
 ```
 
-This runs heartbeats and storage together. The default storage listener is loopback; remote listening requires `--listen`, `--tls-cert`, and `--tls-key`. It remains a foreground process. See [transfer efficiency and setup direction](docs/decisions/0006-transfer-efficiency.md).
+This runs heartbeats and storage together. Paired devices discover the controller's configured relay and connect outbound. Direct remote listening requires `--listen`, `--tls-cert`, and `--tls-key`. It remains a foreground process. See [transfer efficiency and setup direction](docs/decisions/0006-transfer-efficiency.md).
 
 ## Copy and retrieve folders
 

@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -20,6 +19,7 @@ import (
 
 type managedOptions struct {
 	command, controller, server, node, source, collection, destination, name string
+	relay, relayCA                                                           string
 	operatorStdin, json                                                      bool
 }
 
@@ -33,6 +33,8 @@ func managedStorage(ctx context.Context, args []string, input io.Reader, output,
 	flags.BoolVar(&o.json, "json", false, "emit machine-readable results")
 	if o.command != "catalog" {
 		flags.StringVar(&o.server, "server", "http://127.0.0.1:7332", "storage origin")
+		flags.StringVar(&o.relay, "relay", "", "Mesh relay HTTPS origin for the paired device")
+		flags.StringVar(&o.relayCA, "relay-ca", "", "optional private CA PEM for a self-hosted relay")
 	}
 	if o.command == "copy" {
 		flags.StringVar(&o.source, "source", "", "folder to copy")
@@ -61,16 +63,28 @@ func managedStorage(ctx context.Context, args []string, input io.Reader, output,
 	if err != nil {
 		return err
 	}
+	if o.command != "catalog" && o.relay == "" {
+		explicitServer := false
+		flags.Visit(func(f *flag.Flag) {
+			if f.Name == "server" {
+				explicitServer = true
+			}
+		})
+		if !explicitServer {
+			o.relay, err = controller.RelayOrigin(ctx)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	if o.command != "catalog" {
 		if _, err := control.New(o.server); err != nil {
 			return err
 		}
-	}
-	if o.command == "get" {
-		if _, err := os.Lstat(o.destination); err == nil {
-			return errors.New("destination already exists; choose a new folder")
-		} else if !os.IsNotExist(err) {
-			return err
+		if o.relay != "" {
+			if _, err := control.New(o.relay); err != nil {
+				return err
+			}
 		}
 	}
 	data, err := io.ReadAll(io.LimitReader(input, 257))
@@ -120,10 +134,11 @@ func copyManaged(ctx context.Context, controller *control.Client, key, node stri
 	if err = controller.RegisterCollection(ctx, key, node, entry); err != nil {
 		return err
 	}
-	client, err := managedClient(ctx, controller, key, node, o.server, "write", id, logs)
+	client, err := managedClient(ctx, controller, key, node, o, "write", id, logs)
 	if err != nil {
 		return err
 	}
+	defer client.CloseIdleConnections()
 	if _, err = uploadWithRecovery(ctx, client, folder, logs); err != nil {
 		return fmt.Errorf("copy interrupted; rerun the same command to resume: %w", err)
 	}
@@ -191,12 +206,13 @@ lookup:
 	if found.ConfirmedAt == nil {
 		return errors.New("copy is not confirmed yet; rerun its copy command to finish or reconcile it")
 	}
-	client, err := managedClient(ctx, controller, key, node, o.server, "read", found.ID, logs)
+	client, err := managedClient(ctx, controller, key, node, o, "read", found.ID, logs)
 	if err != nil {
 		return err
 	}
-	if err = client.Download(ctx, found.ID, o.destination); err != nil {
-		return fmt.Errorf("download failed; retry into a new destination: %w", err)
+	defer client.CloseIdleConnections()
+	if err = downloadWithRecovery(ctx, client, found.ID, o.destination, logs); err != nil {
+		return fmt.Errorf("download interrupted; rerun the same command and destination to resume: %w", err)
 	}
 	if o.json {
 		return json.NewEncoder(output).Encode(found)
@@ -204,11 +220,15 @@ lookup:
 	_, err = fmt.Fprintf(output, "Retrieved %q to %s.\n", found.Name, o.destination)
 	return err
 }
-func managedClient(ctx context.Context, controller *control.Client, key, node, server, access, id string, logs io.Writer) (*storage.Client, error) {
+func managedClient(ctx context.Context, controller *control.Client, key, node string, o managedOptions, access, id string, logs io.Writer) (*storage.Client, error) {
 	renew := func(ctx context.Context) (string, error) { return controller.StorageGrant(ctx, key, node, access, &id) }
 	token, err := renew(ctx)
 	if err != nil {
 		return nil, err
+	}
+	server := o.server
+	if o.relay != "" {
+		server = "https://mesh-device.invalid"
 	}
 	client, err := storage.NewClient(server, token)
 	if err != nil {
@@ -216,6 +236,12 @@ func managedClient(ctx context.Context, controller *control.Client, key, node, s
 	}
 	client.RenewCredential = renew
 	client.Progress = progressPrinter(logs)
+	if o.relay != "" {
+		if err := configureRemoteClient(ctx, client, controller, key, node, o.relay, o.relayCA, renew); err != nil {
+			return nil, err
+		}
+		fmt.Fprintln(logs, "Connecting through Mesh relay with device-to-device encryption...")
+	}
 	return client, nil
 }
 func showCatalogue(ctx context.Context, controller *control.Client, key, node string, asJSON bool, output io.Writer) error {

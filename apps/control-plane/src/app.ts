@@ -13,15 +13,21 @@ import { HealthController } from './health.controller';
 import { NodesController } from './nodes/nodes.controller';
 import { NodesService } from './nodes/nodes.service';
 import { NODE_REPOSITORY, NodeRepository } from './nodes/repository';
+import { PairingController } from './pairing/pairing.controller';
+import { PAIRING_REPOSITORY, PairingRepository } from './pairing/repository';
+import { PairingService } from './pairing/pairing.service';
+import { RelayController, RelayGuard, RelayRepository, RelayTicketsController } from './relay/relay.controller';
+import { NetworkController } from './relay/network.controller';
 
-export async function createApp(config: Config, repository?: NodeRepository & StorageRepository) {
+export async function createApp(config: Config, repository?: NodeRepository & StorageRepository & PairingRepository & RelayRepository) {
   @Module({
-    controllers: [HealthController, NodesController, StorageController, CollectionsController],
+    controllers: [HealthController, NodesController, PairingController, RelayController, RelayTicketsController, NetworkController, StorageController, CollectionsController],
     providers: [
       { provide: CONFIG, useValue: config },
       { provide: NODE_REPOSITORY, useFactory: () => repository ?? new PostgresNodeRepository(createPool(config.databaseUrl)) },
       { provide: STORAGE_REPOSITORY, useExisting: NODE_REPOSITORY },
-      AdminGuard, NodesService,
+      { provide: PAIRING_REPOSITORY, useExisting: NODE_REPOSITORY },
+      AdminGuard, RelayGuard, NodesService, PairingService,
     ],
   })
   class AppModule {}

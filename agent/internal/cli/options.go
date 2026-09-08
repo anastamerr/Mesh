@@ -17,18 +17,20 @@ type options struct {
 	name       string
 	tokenStdin bool
 	interval   time.Duration
+	relay      string
+	relayCA    string
 }
 
 func parseOptions(args []string, logs io.Writer) (options, error) {
 	var o options
 	if len(args) == 0 {
-		return o, errors.New("usage: mesh-agent info | enroll | status | heartbeat | run | storage (use <command> --help)")
+		return o, errors.New("usage: mesh-agent info | enroll | pair | status | heartbeat | renew | run | storage (use <command> --help)")
 	}
 	o.command = args[0]
 	switch o.command {
-	case "info", "enroll", "status", "heartbeat", "run":
+	case "info", "enroll", "status", "heartbeat", "run", "renew":
 	default:
-		return o, errors.New("unknown command; use info, enroll, status, heartbeat, run, or storage")
+		return o, errors.New("unknown command; use info, enroll, pair, status, heartbeat, renew, run, or storage")
 	}
 	flags := flag.NewFlagSet(o.command, flag.ContinueOnError)
 	flags.SetOutput(logs)
@@ -42,6 +44,8 @@ func parseOptions(args []string, logs io.Writer) (options, error) {
 		flags.BoolVar(&o.tokenStdin, "token-stdin", false, "read a one-time enrollment token from stdin until EOF")
 	}
 	if o.command == "run" {
+		flags.StringVar(&o.relay, "relay", "", "Mesh relay HTTPS origin for access across networks")
+		flags.StringVar(&o.relayCA, "relay-ca", "", "optional private CA PEM for a self-hosted relay")
 		flags.DurationVar(&o.interval, "interval", 15*time.Second, "heartbeat interval, between 1s and 30s")
 		o.storage.enrolled = true
 		flags.StringVar(&o.storage.root, "root", "", "also serve this dedicated storage directory")
@@ -60,6 +64,9 @@ func parseOptions(args []string, logs io.Writer) (options, error) {
 	}
 
 	if o.command == "run" {
+		if o.relay != "" && o.storage.root == "" {
+			return o, errors.New("relay access requires --root")
+		}
 		if o.storage.root != "" {
 			if err := validateServing(o.storage); err != nil {
 				return o, err

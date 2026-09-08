@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { Pool } from 'pg';
@@ -18,9 +18,9 @@ test('PostgreSQL atomically consumes enrollment and serializes heartbeats/revoca
   try {
     await admin.query(`CREATE SCHEMA ${schema}`);
     pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
-    await pool.query(await readFile(resolve(__dirname, '../migrations/001_nodes.sql'), 'utf8'));
-    await pool.query(await readFile(resolve(__dirname, '../migrations/002_storage_grants.sql'), 'utf8'));
-    await pool.query(await readFile(resolve(__dirname, '../migrations/003_collections.sql'), 'utf8'));
+    for (const name of (await readdir(resolve(__dirname, '../migrations'))).filter(name => name.endsWith('.sql')).sort()) {
+      await pool.query(await readFile(resolve(__dirname, '../migrations', name), 'utf8'));
+    }
     const repository = new PostgresNodeRepository(pool);
     await repository.createEnrollment('enrollment-hash', new Date(Date.now() + 60_000));
     const input = { enrollmentToken: 'unused', name: 'Lenovo', platform: 'windows' as const,

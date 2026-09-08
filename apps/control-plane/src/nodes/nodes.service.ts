@@ -42,4 +42,16 @@ export class NodesService {
     if (!await this.repository.revoke(nodeId)) throw new NotFoundException('Node not found');
     return { revoked: true };
   }
+
+  async connection(nodeId: string) {
+    const connection = await this.repository.getNodeConnection(nodeId);
+    if (!connection) throw new NotFoundException('Paired node not found or unavailable');
+    return connection;
+  }
+
+  async renew(nodeId: string, credential: string) {
+    const expiresAt = await this.repository.renew(nodeId, hashToken(credential));
+    if (!expiresAt) throw new UnauthorizedException('Paired node identity invalid, expired, or revoked');
+    return { expiresAt };
+  }
 }

@@ -22,13 +22,15 @@ var nodeID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-
 var credential = regexp.MustCompile(`^mesh_node_[A-Za-z0-9_-]{43}$`)
 
 type State struct {
-	Version      int       `json:"version"`
-	Server       string    `json:"server"`
-	NodeID       string    `json:"nodeId"`
-	Name         string    `json:"name"`
-	Credential   string    `json:"credential"`
-	ExpiresAt    time.Time `json:"credentialExpiresAt"`
-	NextSequence uint64    `json:"nextSequence"`
+	Version              int       `json:"version"`
+	Server               string    `json:"server"`
+	NodeID               string    `json:"nodeId"`
+	Name                 string    `json:"name"`
+	Credential           string    `json:"credential"`
+	ExpiresAt            time.Time `json:"credentialExpiresAt"`
+	NextSequence         uint64    `json:"nextSequence"`
+	PublicKeyFingerprint string    `json:"publicKeyFingerprint,omitempty"`
+	RelayOrigin          string    `json:"relayOrigin,omitempty"`
 }
 
 func (s State) Validate() error {
@@ -131,6 +133,11 @@ func (s *Store) Save(value State) error {
 	if err != nil {
 		return err
 	}
+	return s.saveProtected("state.json", data)
+}
+
+func (s *Store) saveProtected(name string, data []byte) error {
+	var err error
 	data, err = protect(data)
 	if err != nil {
 		return errors.New("cannot protect agent state")
@@ -151,7 +158,7 @@ func (s *Store) Save(value State) error {
 	if err = f.Close(); err != nil {
 		return err
 	}
-	if err = os.Rename(f.Name(), filepath.Join(s.dir, "state.json")); err != nil {
+	if err = os.Rename(f.Name(), filepath.Join(s.dir, name)); err != nil {
 		return err
 	}
 	if runtime.GOOS != "windows" {

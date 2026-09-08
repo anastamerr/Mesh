@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -170,9 +171,23 @@ func AuthorizedHandler(store *Store, authorize Authorizer, report PublicationRep
 			return
 		}
 		defer f.Close()
+		start, end, partial, err := downloadRange(r.Header.Get("Range"), e.Size)
+		if err != nil {
+			w.Header().Set("Content-Range", "bytes */"+strconv.FormatInt(e.Size, 10))
+			http.Error(w, http.StatusText(http.StatusRequestedRangeNotSatisfiable), http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Length", strconv.FormatInt(e.Size, 10))
-		_, _ = io.CopyN(w, f, e.Size)
+		w.Header().Set("Accept-Ranges", "bytes")
+		length := end - start + 1
+		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+		if partial {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, e.Size))
+			w.WriteHeader(http.StatusPartialContent)
+		}
+		if _, err = f.Seek(start, io.SeekStart); err == nil {
+			_, _ = io.CopyN(w, f, length)
+		}
 	})
 	// Limit active requests before reading bodies: memory stays bounded even when
 	// several clients upload concurrently. Excess clients may retry later.
@@ -197,6 +212,36 @@ func AuthorizedHandler(store *Store, authorize Authorizer, report PublicationRep
 		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// downloadRange accepts one explicit byte range. Suffix and multipart ranges
+// are unnecessary for transfer recovery and are rejected rather than guessed.
+func downloadRange(value string, size int64) (start, end int64, partial bool, err error) {
+	if value == "" {
+		if size == 0 {
+			return 0, -1, false, nil
+		}
+		return 0, size - 1, false, nil
+	}
+	if !strings.HasPrefix(value, "bytes=") || strings.Contains(value, ",") {
+		return 0, 0, false, ErrInvalid
+	}
+	parts := strings.Split(strings.TrimPrefix(value, "bytes="), "-")
+	if len(parts) != 2 || parts[0] == "" || size == 0 {
+		return 0, 0, false, ErrInvalid
+	}
+	start, err = strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || start < 0 || start >= size {
+		return 0, 0, false, ErrInvalid
+	}
+	end = size - 1
+	if parts[1] != "" {
+		end, err = strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || end < start || end >= size {
+			return 0, 0, false, ErrInvalid
+		}
+	}
+	return start, end, true, nil
 }
 
 // Known upload sizes need one allocation. Chunked legacy requests remain

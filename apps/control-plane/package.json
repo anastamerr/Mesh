@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:remote": "node tools/live-remote.mjs",
     "test:live": "node --env-file=.env tools/live-storage.mjs",
     "test:windows": "node --env-file=.env tools/windows-storage-live.mjs",
     "dev": "tsx watch src/main.ts",

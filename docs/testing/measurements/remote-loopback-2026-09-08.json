@@ -1,0 +1,29 @@
+{
+  "environment": "win32/x64; separate processes, HTTPS relay over loopback; not a WAN test",
+  "checks": [
+    "Paired device lease renewal is authenticated and repeatable",
+    "Pairing survives requester death and repeated approval creates one identity; mismatched fingerprint denied",
+    "Relay service credential cannot administer devices",
+    "Relay tickets cannot renew identity, mint tickets, or change role; storage grants cannot authenticate to relay",
+    "128 MiB relay upload/retrieval hashes match; killed downloader resumes durable bytes after relay restart",
+    "Wrong paired TLS key is rejected before creating output",
+    "Corrupt saved prefix is discarded and downloaded again with matching final hash",
+    "Existing user destination remains untouched",
+    "200 small files copied and retrieved through relay with all hashes verified",
+    "Revoked device cannot obtain fresh remote access"
+  ],
+  "measurements": [
+    {
+      "operation": "relay upload",
+      "bytes": 134217728,
+      "elapsedMs": 2386.5481
+    },
+    {
+      "operation": "resumed relay download",
+      "savedBytes": 8388608,
+      "bytes": 134217728,
+      "elapsedMs": 2030.224900000001
+    }
+  ],
+  "result": "PASS"
+}

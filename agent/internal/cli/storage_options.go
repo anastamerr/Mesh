@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"io"
@@ -21,6 +23,15 @@ type storageOptions struct {
 	after       string
 	stateDir    string
 	enrolled    bool
+	remote      *remoteStorage
+}
+
+type remoteStorage struct {
+	origin      string
+	nodeID      string
+	ticket      func(context.Context) (string, error)
+	certificate tls.Certificate
+	trust       *tls.Config
 }
 
 func parseStorage(args []string, logs io.Writer) (storageOptions, error) {

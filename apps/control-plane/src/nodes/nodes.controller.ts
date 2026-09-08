@@ -21,6 +21,10 @@ export class NodesController {
   @UseGuards(AdminGuard)
   list() { return this.nodes.list(); }
 
+  @Get('nodes/:id/connection')
+  @UseGuards(AdminGuard)
+  connection(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) { return this.nodes.connection(id); }
+
   @Post('nodes/:id/heartbeat')
   @HttpCode(200)
   heartbeat(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
@@ -32,4 +36,11 @@ export class NodesController {
   @HttpCode(200)
   @UseGuards(AdminGuard)
   revoke(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) { return this.nodes.revoke(id); }
+
+  @Post('nodes/:id/renew')
+  @HttpCode(200)
+  renew(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Headers('authorization') authorization: string | undefined) {
+    return this.nodes.renew(id, bearer(authorization));
+  }
 }

@@ -21,6 +21,12 @@ import (
 )
 
 func Execute(ctx context.Context, args []string, input io.Reader, output, logs io.Writer) error {
+	if len(args) > 0 && args[0] == "pair" {
+		if len(args) > 1 && (args[1] == "list" || args[1] == "approve") {
+			return pairingOperatorCommand(ctx, args[1:], input, output, logs)
+		}
+		return pairCommand(ctx, args[1:], output, logs)
+	}
 	if len(args) > 0 && args[0] == "storage" {
 		return executeStorage(ctx, args[1:], input, output, logs)
 	}
@@ -61,6 +67,12 @@ func Execute(ctx context.Context, args []string, input io.Reader, output, logs i
 		}
 		if o.command == "run" {
 			return runNode(ctx, &saved, store, client, o, logs)
+		}
+		if o.command == "renew" {
+			if err := renewIdentity(ctx, &saved, store, client); err != nil {
+				return err
+			}
+			return showStatus(saved, output)
 		}
 		if err := runner.Once(ctx, &saved, store, client, inventory.Read); err != nil {
 			return err
