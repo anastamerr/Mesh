@@ -21,6 +21,8 @@ import (
 
 const downloadStateVersion = 1
 
+const corruptDownloadStateError = "saved download state is corrupt; move it aside to restart safely"
+
 type downloadState struct {
 	Version     int    `json:"version"`
 	Collection  string `json:"collection"`
@@ -90,7 +92,7 @@ func (c *Client) Download(ctx context.Context, id, destination string) (err erro
 		}
 		if c.batch {
 			indices := batchIndices(m, i, nil)
-			if e.Size > 0 && len(indices) > 1 {
+			if len(indices) > 1 {
 				if err = c.downloadBatch(ctx, root, m, id, indices, progress); err != nil {
 					return err
 				}
@@ -283,7 +285,7 @@ func openDownloadState(parent *os.Root, name, destination, id string) (downloadS
 	reader := bufio.NewReaderSize(f, 4096)
 	header, readErr := reader.ReadSlice('\n')
 	if readErr != nil || len(header) > 4096 {
-		return downloadState{}, nil, false, errors.New("saved download state is corrupt; move it aside to restart safely")
+		return downloadState{}, nil, false, errors.New(corruptDownloadStateError)
 	}
 	var state downloadState
 	if json.Unmarshal(header, &state) != nil || state.Version != downloadStateVersion || state.Collection != id || state.Destination != destination || !validDownloadStaging(state.Staging) {
@@ -307,11 +309,11 @@ func openDownloadState(parent *os.Root, name, destination, id string) (downloadS
 			break
 		}
 		if lineErr != nil || len(line) > 4096 {
-			return downloadState{}, nil, false, errors.New("saved download state is corrupt; move it aside to restart safely")
+			return downloadState{}, nil, false, errors.New(corruptDownloadStateError)
 		}
 		var checkpoint downloadCheckpoint
 		if json.Unmarshal(line, &checkpoint) != nil || checkpoint.Index < 0 || checkpoint.Index >= MaxEntries || checkpoint.Offset < 0 || !validID(checkpoint.SHA256) {
-			return downloadState{}, nil, false, errors.New("saved download state is corrupt; move it aside to restart safely")
+			return downloadState{}, nil, false, errors.New(corruptDownloadStateError)
 		}
 		checkpoints[checkpoint.Index] = checkpoint
 		validBytes += int64(len(line))
@@ -479,12 +481,7 @@ func recoverFilePrefix(ctx context.Context, root *os.Root, e Entry, checkpoint d
 	if err != nil || !info.Mode().IsRegular() {
 		return 0, ErrConflict
 	}
-	if checkpoint.Offset == 0 && info.Size() == e.Size {
-		if err = verify(ctx, f, e); err == nil {
-			return e.Size, nil
-		}
-	}
-	if checkpoint.Offset == e.Size && checkpoint.SHA256 == e.SHA256 && info.Size() == e.Size {
+	if info.Size() == e.Size && (checkpoint.Offset == 0 || checkpoint.Offset == e.Size && checkpoint.SHA256 == e.SHA256) {
 		if err = verify(ctx, f, e); err == nil {
 			return e.Size, nil
 		}
@@ -552,9 +549,9 @@ func (c *Client) downloadFileResumable(ctx context.Context, root *os.Root, journ
 		return err
 	}
 	buffer := make([]byte, 32*1024)
+	writer := io.MultiWriter(f, h)
 	for offset < e.Size {
 		expected := min(ChunkSize, e.Size-offset)
-		writer := io.MultiWriter(f, h)
 		n, copyErr := io.CopyBuffer(writer, &contextReader{ctx: ctx, r: io.LimitReader(res.Body, expected)}, buffer)
 		if n > 0 {
 			offset += n

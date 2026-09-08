@@ -8,8 +8,7 @@ import { NodeRecord, NodeRepository } from '../src/nodes/repository';
 import type { PairingRequest } from '../src/pairing/contracts';
 import type { PairingApproval, PairingChallenge, PairingRepository, PairingStatus } from '../src/pairing/repository';
 
-type StoredPairing = PairingChallenge & PairingRequest & { createdAt: Date; approvedAt: Date | null;
-  nodeId: string | null; credentialExpiresAt: Date | null };
+type StoredPairing = PairingChallenge & PairingRequest & { createdAt: Date; nodeId: string | null };
 
 export class MemoryRepository implements NodeRepository, StorageRepository, PairingRepository {
   tokens = new Map<string, Date>();
@@ -58,9 +57,9 @@ export class MemoryRepository implements NodeRepository, StorageRepository, Pair
     return node.expires;
   }
   pairings = new Map<string, StoredPairing>();
-  async createPairing(input: PairingRequest, id: string, code: string,
+  async createPairing(input: PairingRequest, code: string,
     expiresAt: Date): Promise<PairingChallenge | 'capacity' | 'conflict' | 'expired'> {
-    const previous = [...this.pairings.values()].find(pairing => pairing.pairingRequestId === input.pairingRequestId);
+    const previous = this.pairings.get(input.pairingRequestId);
     if (previous) {
       const matches = previous.pairingSecretHash === input.pairingSecretHash
         && previous.nodeCredentialHash === input.nodeCredentialHash
@@ -68,18 +67,18 @@ export class MemoryRepository implements NodeRepository, StorageRepository, Pair
         && previous.platform === input.platform && previous.architecture === input.architecture
         && previous.agentVersion === input.agentVersion;
       if (!matches) return 'conflict';
-      if (!previous.approvedAt && previous.expiresAt.getTime() <= Date.now()) return 'expired';
+      if (!previous.nodeId && previous.expiresAt.getTime() <= Date.now()) return 'expired';
       return { id: previous.id, code: previous.code, expiresAt: previous.expiresAt };
     }
-    const pending = [...this.pairings.values()].filter(pairing => !pairing.approvedAt && pairing.expiresAt.getTime() > Date.now());
+    const pending = [...this.pairings.values()].filter(pairing => !pairing.nodeId && pairing.expiresAt.getTime() > Date.now());
     if (pending.length >= 100) return 'capacity';
-    const challenge = { ...input, id, code, expiresAt, createdAt: new Date(), approvedAt: null,
-      nodeId: null, credentialExpiresAt: null };
+    const id = input.pairingRequestId;
+    const challenge = { ...input, id, code, expiresAt, createdAt: new Date(), nodeId: null };
     this.pairings.set(id, challenge);
     return { id, code, expiresAt };
   }
   async listPendingPairings() {
-    return [...this.pairings.values()].filter(pairing => !pairing.approvedAt && pairing.expiresAt.getTime() > Date.now())
+    return [...this.pairings.values()].filter(pairing => !pairing.nodeId && pairing.expiresAt.getTime() > Date.now())
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id)).slice(0, 100)
       .map(({ id, code, expiresAt, name, platform, architecture, agentVersion, publicKeyFingerprint, createdAt }) =>
         ({ id, code, expiresAt, name, platform, architecture, agentVersion, publicKeyFingerprint, createdAt }));
@@ -88,7 +87,7 @@ export class MemoryRepository implements NodeRepository, StorageRepository, Pair
     const pairing = this.pairings.get(id);
     if (!pairing) return { kind: 'missing' };
     if (pairing.publicKeyFingerprint !== expectedFingerprint) return { kind: 'identity-conflict' };
-    if (pairing.nodeId && pairing.credentialExpiresAt) {
+    if (pairing.nodeId) {
       const node = this.nodes.get(pairing.nodeId);
       if (!node || node.revokedAt || node.expires.getTime() <= Date.now()) return { kind: 'expired' };
       return { kind: 'approved', node: this.publicNode(node), credentialExpiresAt: node.expires };
@@ -102,14 +101,12 @@ export class MemoryRepository implements NodeRepository, StorageRepository, Pair
       hash: pairing.nodeCredentialHash, expires: credentialExpiresAt, sequence: -1 };
     this.nodes.set(node.id, node);
     pairing.nodeId = node.id;
-    pairing.approvedAt = new Date();
-    pairing.credentialExpiresAt = credentialExpiresAt;
     return { kind: 'approved', node: this.publicNode(node), credentialExpiresAt };
   }
   async getPairingStatus(id: string, pairingSecretHash: string): Promise<PairingStatus> {
     const pairing = this.pairings.get(id);
     if (!pairing || pairing.pairingSecretHash !== pairingSecretHash) return { kind: 'unauthorized' };
-    if (pairing.nodeId && pairing.credentialExpiresAt) {
+    if (pairing.nodeId) {
       const node = this.nodes.get(pairing.nodeId);
       if (!node || node.revokedAt || node.expires.getTime() <= Date.now()) return { kind: 'expired' };
       return { kind: 'approved', node: this.publicNode(node), credentialExpiresAt: node.expires };
@@ -135,19 +132,15 @@ export class MemoryRepository implements NodeRepository, StorageRepository, Pair
       && grant && grant.nodeId === nodeId && grant.expiresAt.getTime() > Date.now()
       && grant.permission.access === permission.access && grant.permission.collectionId === permission.collectionId);
   }
-  private async relaySource(role: 'device' | 'consumer', nodeId: string, tokenHash: string) {
-    const node = this.nodes.get(nodeId);
-    if (!node?.publicKeyFingerprint || node.revokedAt || node.expires.getTime() <= Date.now()) return null;
-    if (role === 'device') return node.hash === tokenHash ? { subject: `device:${nodeId}`, expiresAt: node.expires } : null;
-    const grant = this.grants.get(tokenHash);
-    if (!grant || grant.nodeId !== nodeId || grant.expiresAt.getTime() <= Date.now()) return null;
-    return { subject: `consumer:${nodeId}`, expiresAt: grant.expiresAt < node.expires ? grant.expiresAt : node.expires };
-  }
   relayTickets = new Map<string, { role: 'device' | 'consumer'; nodeId: string; expiresAt: Date }>();
   async createRelayTicket(role: 'device' | 'consumer', nodeId: string, sourceHash: string, ticketHash: string) {
-    const source = await this.relaySource(role, nodeId, sourceHash);
-    if (!source) return null;
-    const expiresAt = new Date(Math.min(source.expiresAt.getTime(), Date.now() + 600000));
+    const node = this.nodes.get(nodeId);
+    if (!node?.publicKeyFingerprint || node.revokedAt || node.expires.getTime() <= Date.now()) return null;
+    const grant = role === 'consumer' ? this.grants.get(sourceHash) : undefined;
+    if (role === 'device' ? node.hash !== sourceHash
+      : !grant || grant.nodeId !== nodeId || grant.expiresAt.getTime() <= Date.now()) return null;
+    const expiresAt = new Date(Math.min(node.expires.getTime(), grant?.expiresAt.getTime() ?? Infinity, Date.now() + 600000));
+    for (const [hash, ticket] of this.relayTickets) if (ticket.expiresAt.getTime() <= Date.now()) this.relayTickets.delete(hash);
     this.relayTickets.set(ticketHash, { role, nodeId, expiresAt });
     return expiresAt;
   }

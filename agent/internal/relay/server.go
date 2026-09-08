@@ -301,8 +301,10 @@ func (s *Server) bridge(nodeID string, a, b net.Conn, ar AuthRequest, al Lease, 
 	}()
 	idle := newIdleState(s.c.IdleTimeout, a, b)
 	copyDone := make(chan struct{}, 2)
-	go copyHalf(&activityConn{Conn: a, idle: idle}, &activityConn{Conn: b, idle: idle}, copyDone)
-	go copyHalf(&activityConn{Conn: b, idle: idle}, &activityConn{Conn: a, idle: idle}, copyDone)
+	activityA := &activityConn{Conn: a, idle: idle}
+	activityB := &activityConn{Conn: b, idle: idle}
+	go copyHalf(activityB, activityA, copyDone)
+	go copyHalf(activityA, activityB, copyDone)
 	<-copyDone
 	_ = a.Close()
 	_ = b.Close()

@@ -70,11 +70,11 @@ func (a *HTTPAuthorizer) request(ctx context.Context, input AuthRequest) (Lease,
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
-		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 16*1024))
+		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, maxAuthorizationResponse))
 		return lease, ErrDenied
 	}
 	if res.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 16*1024))
+		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, maxAuthorizationResponse))
 		return lease, ErrUnavailable
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxAuthorizationResponse+1))

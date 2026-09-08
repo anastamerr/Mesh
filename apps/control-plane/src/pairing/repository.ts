@@ -31,7 +31,7 @@ export type PairingApproval =
   | { kind: 'approved'; node: NodeRecord; credentialExpiresAt: Date };
 
 export interface PairingRepository {
-  createPairing(input: PairingRequest, id: string, code: string, expiresAt: Date):
+  createPairing(input: PairingRequest, code: string, expiresAt: Date):
     Promise<PairingChallenge | 'capacity' | 'conflict' | 'expired'>;
   listPendingPairings(): Promise<PendingPairing[]>;
   approvePairing(id: string, expectedFingerprint: string, credentialExpiresAt: Date): Promise<PairingApproval>;

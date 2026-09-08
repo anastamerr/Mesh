@@ -9,7 +9,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
-	"encoding/pem"
 	"errors"
 	"math/big"
 	"os"
@@ -60,19 +59,10 @@ func (s *Store) DeviceCertificate() (tls.Certificate, string, error) {
 	if err != nil {
 		return tls.Certificate{}, "", err
 	}
-	private, err := x509.MarshalECPrivateKey(key)
+	leaf, err := x509.ParseCertificate(der)
 	if err != nil {
 		return tls.Certificate{}, "", err
 	}
-	pair, err := tls.X509KeyPair(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
-		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: private}))
-	if err != nil {
-		return tls.Certificate{}, "", err
-	}
-	public, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
-	if err != nil {
-		return tls.Certificate{}, "", err
-	}
-	hash := sha256.Sum256(public)
-	return pair, hex.EncodeToString(hash[:]), nil
+	hash := sha256.Sum256(leaf.RawSubjectPublicKeyInfo)
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}, hex.EncodeToString(hash[:]), nil
 }

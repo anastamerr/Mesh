@@ -57,3 +57,11 @@ Reproduce with `go test ./internal/storage -run '^$' -bench 'BenchmarkLargeFileT
 - After the live run, the upload handlers retained `http.MaxBytesReader` around the exact-size reader to preserve oversized-body connection handling. The full Go race suite, vet and host build passed again; final comparative benchmarks include this wrapper.
 
 The interrupted-acknowledgement regression was also run against the preserved pre-audit source: it fails with `unexpected EOF`. The fixed source passes and sends the committed batch only once. This is evidence for that recovery behavior, not a guarantee against every possible regression.
+
+## Remote backend prune pass — 2026-09-08
+
+Reviewed pairing, identity persistence, relay transport, managed CLI integration and resumable retrieval added in `f605ae7`. The code/test diff removes 44 net lines across 11 files. Removed an unused node-list client and response fields, a redundant pairing-ID argument, duplicated mock approval state, and the certificate's PEM encode/decode round trip. Downloads reuse one file/hash writer per file rather than per checkpoint and share full-file recovery verification. Relay bridges reuse two connection wrappers instead of four. Existing protocol, journal and database formats remain unchanged.
+
+Relay-ticket creation now authorizes, expires old tickets and inserts the new ticket in one SQL statement, reducing successful issuance from three database round trips to one. Device and consumer credentials remain distinct, and tickets still expire at the earliest source expiry or ten minutes. This operation-count reduction is not a claim of threefold end-to-end throughput.
+
+Validation: unchanged anti-slop rules, strict typecheck/build, all 13 backend tests with PostgreSQL and compiled agent (no skips), full Go race tests, vet, formatting, host builds, and Linux/macOS/Windows amd64 cross-builds pass. The [final live report](measurements/remote-prune-2026-09-08.json) records actual controller/agent/HTTPS-relay processes: 128 MiB upload, killed retrieval and relay restart, 12 MiB reused, corrupt-prefix repair, wrong-key rejection, destination protection, 200 small-file hash checks and revocation. Local upload/recovery times are observations, not controlled before/after speed claims. Separate-network WAN validation remains outstanding.

@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mesh.local/agent/internal/storage"
 	"time"
+
+	"mesh.local/agent/internal/storage"
 )
 
 func downloadWithRecovery(ctx context.Context, client *storage.Client, id, destination string, logs io.Writer) error {

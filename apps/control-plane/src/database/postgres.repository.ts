@@ -83,7 +83,7 @@ export class PostgresNodeRepository implements NodeRepository, StorageRepository
     return result.rows[0]?.expiresAt ?? null;
   }
 
-  async createPairing(input: PairingRequest, id: string, code: string,
+  async createPairing(input: PairingRequest, code: string,
     expiresAt: Date): Promise<PairingChallenge | 'capacity' | 'conflict' | 'expired'> {
     return transaction(this.pool, async client => {
       // Serialize the global pending bound with creation. This public endpoint is
@@ -116,7 +116,7 @@ export class PostgresNodeRepository implements NodeRepository, StorageRepository
         (id,request_id,code,pairing_secret_hash,node_credential_hash,public_key_fingerprint,
           name,platform,architecture,agent_version,expires_at)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-        RETURNING id,code,expires_at AS "expiresAt"`, [id, input.pairingRequestId, code,
+        RETURNING id,code,expires_at AS "expiresAt"`, [input.pairingRequestId, input.pairingRequestId, code,
         input.pairingSecretHash, input.nodeCredentialHash, input.publicKeyFingerprint, input.name,
         input.platform, input.architecture, input.agentVersion, expiresAt]);
       await client.query("INSERT INTO audit_events(action) VALUES ('pairing.created')");
@@ -185,31 +185,22 @@ export class PostgresNodeRepository implements NodeRepository, StorageRepository
     return challenge.expiresAt.getTime() <= Date.now() ? { kind: 'expired' } : { kind: 'pending' };
   }
 
-  private async relaySource(role: 'device' | 'consumer', nodeId: string, tokenHash: string):
-    Promise<{ subject: string; expiresAt: Date } | null> {
-    if (role === 'device') {
-      const result = await this.pool.query<{ expiresAt: Date }>(`SELECT credential_expires_at AS "expiresAt" FROM nodes
-        WHERE id=$1 AND credential_hash=$2 AND public_key_fingerprint IS NOT NULL
-          AND revoked_at IS NULL AND credential_expires_at > now()`, [nodeId, tokenHash]);
-      return result.rows[0] ? { subject: `device:${nodeId}`, expiresAt: result.rows[0].expiresAt } : null;
-    }
-    const result = await this.pool.query<{ expiresAt: Date }>(`SELECT LEAST(g.expires_at,n.credential_expires_at) AS "expiresAt"
-      FROM storage_grants g
-      JOIN nodes n ON n.id=g.node_id WHERE n.id=$1 AND g.token_hash=$2 AND g.expires_at > now()
-        AND n.public_key_fingerprint IS NOT NULL AND n.revoked_at IS NULL
-        AND n.credential_expires_at > now() LIMIT 1`, [nodeId, tokenHash]);
-    return result.rows[0] ? { subject: `consumer:${nodeId}`, expiresAt: result.rows[0].expiresAt } : null;
-  }
-
   async createRelayTicket(role: 'device' | 'consumer', nodeId: string, sourceHash: string, ticketHash: string): Promise<Date | null> {
-    const source = await this.relaySource(role, nodeId, sourceHash);
-    if (!source) return null;
-    const expiry = new Date(Math.min(source.expiresAt.getTime(), Date.now() + 10 * 60 * 1000));
-    await this.pool.query('DELETE FROM relay_tickets WHERE expires_at<=now()');
-    await this.pool.query('INSERT INTO relay_tickets(token_hash,node_id,role,expires_at) VALUES($1,$2,$3,$4)', [ticketHash,nodeId,role,expiry]);
-    return expiry;
+    // Authorize and issue in one statement; cleanup only runs for a valid source.
+    const result = await this.pool.query<{ expiresAt: Date }>(`WITH eligible AS (
+      SELECT n.id, LEAST(n.credential_expires_at,g.expires_at,now()+interval '10 minutes') AS expires_at
+      FROM nodes n LEFT JOIN storage_grants g ON $1='consumer' AND g.node_id=n.id
+        AND g.token_hash=$3 AND g.expires_at>now()
+      WHERE n.id=$2 AND n.public_key_fingerprint IS NOT NULL AND n.revoked_at IS NULL
+        AND n.credential_expires_at>now()
+        AND (($1='device' AND n.credential_hash=$3) OR ($1='consumer' AND g.token_hash IS NOT NULL))
+    ), expired AS (
+      DELETE FROM relay_tickets WHERE expires_at<=now() AND EXISTS (SELECT 1 FROM eligible)
+    ) INSERT INTO relay_tickets(token_hash,node_id,role,expires_at)
+      SELECT $4,id,$1,expires_at FROM eligible RETURNING expires_at AS "expiresAt"`,
+    [role,nodeId,sourceHash,ticketHash]);
+    return result.rows[0]?.expiresAt ?? null;
   }
-
   async authorizeRelay(role: 'device' | 'consumer', nodeId: string, tokenHash: string): Promise<{ subject: string; expiresAt: Date } | null> {
     const result = await this.pool.query<{ expiresAt: Date }>(`SELECT LEAST(t.expires_at,n.credential_expires_at) AS "expiresAt"
       FROM relay_tickets t JOIN nodes n ON n.id=t.node_id WHERE t.token_hash=$1 AND t.node_id=$2 AND t.role=$3

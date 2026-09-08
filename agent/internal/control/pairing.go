@@ -27,17 +27,14 @@ type PairingChallenge struct {
 }
 
 type Node struct {
-	ID                   string     `json:"id"`
-	Name                 string     `json:"name"`
-	PublicKeyFingerprint string     `json:"publicKeyFingerprint"`
-	LastSeenAt           *time.Time `json:"lastSeenAt"`
-	RevokedAt            *time.Time `json:"revokedAt"`
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	PublicKeyFingerprint string `json:"publicKeyFingerprint"`
 }
 
 type PairingStatus struct {
 	Status              string    `json:"status"`
 	Node                Node      `json:"node"`
-	ExpiresAt           time.Time `json:"expiresAt"`
 	CredentialExpiresAt time.Time `json:"credentialExpiresAt"`
 }
 
@@ -83,19 +80,6 @@ func (c *Client) ApprovePairing(ctx context.Context, operator, id, fingerprint s
 		return ErrProtocol
 	}
 	return err
-}
-
-func (c *Client) Nodes(ctx context.Context, operator string) ([]Node, error) {
-	var nodes []Node
-	err := c.request(ctx, http.MethodGet, "/v1/nodes", operator, nil, &nodes)
-	if err == nil {
-		for _, node := range nodes {
-			if !uuid.MatchString(node.ID) {
-				return nil, ErrProtocol
-			}
-		}
-	}
-	return nodes, err
 }
 
 func (c *Client) DeviceFingerprint(ctx context.Context, operator, id string) (string, error) {

@@ -18,7 +18,7 @@ export class PairingService {
   constructor(@Inject(PAIRING_REPOSITORY) private readonly repository: PairingRepository) {}
 
   async create(input: PairingRequest) {
-    const result = await this.repository.createPairing(input, input.pairingRequestId, pairingCode(),
+    const result = await this.repository.createPairing(input, pairingCode(),
       new Date(Date.now() + 10 * 60 * 1000));
     if (result === 'capacity') throw new HttpException('Too many pending pairing challenges', HttpStatus.TOO_MANY_REQUESTS);
     if (result === 'conflict') throw new ConflictException('Pairing request identifier already used with different details');

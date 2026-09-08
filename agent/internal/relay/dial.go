@@ -91,12 +91,10 @@ func Dial(ctx context.Context, relayOrigin, nodeID string, role Role, bearer str
 		return nil, fmt.Errorf("%w: HTTP %d", ErrUnavailable, response.StatusCode)
 	}
 	bounded.N = math.MaxInt64
-	_ = conn.SetDeadline(timeZero)
+	_ = conn.SetDeadline(time.Time{})
 	connected = true
 	return &bufferedConn{Conn: conn, reader: reader}, nil
 }
-
-var timeZero time.Time
 
 type bufferedConn struct {
 	net.Conn
