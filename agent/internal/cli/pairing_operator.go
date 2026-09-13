@@ -36,11 +36,10 @@ func pairingOperatorCommand(ctx context.Context, args []string, input io.Reader,
 	if err != nil {
 		return err
 	}
-	data, err := io.ReadAll(io.LimitReader(input, 257))
-	if err != nil || len(data) > 256 {
-		return errors.New("invalid operator credential")
+	operator, err := readOperatorCredential(input)
+	if err != nil {
+		return err
 	}
-	operator := strings.TrimSpace(string(data))
 	challenges, err := client.PairingChallenges(ctx, operator)
 	if err != nil {
 		return err

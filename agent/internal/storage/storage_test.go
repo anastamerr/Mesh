@@ -222,7 +222,7 @@ func TestSymlinksCannotEscapeCollectionOrSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer source.Close()
-	if _, err = Scan(testContext, source); err == nil {
+	if _, err = Scan(testContext, source, nil); err == nil {
 		t.Fatal("source symlink accepted")
 	}
 }

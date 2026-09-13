@@ -11,6 +11,7 @@ import { promisify } from 'node:util';
 import { Pool } from 'pg';
 import { createApp } from '../src/app';
 import { PostgresNodeRepository } from '../src/database/postgres.repository';
+import { PostgresWorkloadRepository } from '../src/database/postgres.workload-repository';
 
 // Runs the real compiled Go executable against HTTP and an isolated PostgreSQL schema.
 // Neither credentials nor enrollment tokens are passed on the command line.
@@ -40,7 +41,7 @@ test('real agent enrolls, persists sequence across processes/controller restart,
   async function start(port = 0) {
     pool = new Pool({ connectionString, options: `-c search_path=${schema}` });
     app = await createApp({ adminKey: key, databaseUrl: 'postgresql://unused', host: '127.0.0.1', port },
-      new PostgresNodeRepository(pool));
+      { nodes: new PostgresNodeRepository(pool), workloads: new PostgresWorkloadRepository(pool) });
     await app.listen(port, '127.0.0.1');
     return await app.getUrl();
   }

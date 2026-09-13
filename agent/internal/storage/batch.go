@@ -20,7 +20,7 @@ const (
 	batchFeature         = "batch-v1"
 )
 
-type batchWriteJob struct {
+type batchJob struct {
 	entry Entry
 	data  []byte
 }
@@ -150,7 +150,7 @@ func (s *Store) writeBatch(ctx context.Context, id string, m Manifest, indices [
 	}
 	// Validate only this batch using the (collection, ordinal) primary key.
 	// Begin and Finish still validate the complete durable progress document.
-	args := make([]any, 1, len(indices)+1)
+	args := make([]interface{}, 1, len(indices)+1)
 	args[0] = id
 	for _, index := range indices {
 		args = append(args, index)
@@ -216,7 +216,7 @@ func (s *Store) writeBatch(ctx context.Context, id string, m Manifest, indices [
 func writeBatchFiles(ctx context.Context, root *os.Root, m Manifest, indices []int, data []byte, workerLimit int, write batchFileWriter) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	jobs := make(chan batchWriteJob)
+	jobs := make(chan batchJob)
 	workerCount := min(workerLimit, len(indices))
 	var workers sync.WaitGroup
 	var failOnce sync.Once
@@ -248,7 +248,7 @@ func writeBatchFiles(ctx context.Context, root *os.Root, m Manifest, indices []i
 sendJobs:
 	for _, index := range indices {
 		e := m.Entries[index]
-		job := batchWriteJob{entry: e, data: data[:e.Size]}
+		job := batchJob{entry: e, data: data[:e.Size]}
 		data = data[e.Size:]
 		select {
 		case jobs <- job:

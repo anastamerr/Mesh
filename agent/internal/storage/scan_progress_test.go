@@ -22,7 +22,7 @@ func TestScanProgressReportsEachCompletedFile(t *testing.T) {
 	defer root.Close()
 
 	var completed []TransferEvent
-	_, err = scan(context.Background(), root, func(event TransferEvent) {
+	_, err = Scan(context.Background(), root, func(event TransferEvent) {
 		if len(completed) == 0 || event.Files > completed[len(completed)-1].Files {
 			completed = append(completed, event)
 		}

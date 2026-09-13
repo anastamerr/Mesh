@@ -13,6 +13,7 @@ import { Pool } from 'pg';
 import { z } from 'zod';
 import { createApp } from '../dist/app.js';
 import { PostgresNodeRepository } from '../dist/database/postgres.repository.js';
+import { PostgresWorkloadRepository } from '../dist/database/postgres.workload-repository.js';
 
 const database = process.env.MESH_TEST_DATABASE_URL;
 if (!database) throw new Error('Set MESH_TEST_DATABASE_URL to a dedicated test database.');
@@ -88,7 +89,7 @@ try {
   for (const file of (await readdir(fileURLToPath(new URL('../migrations', import.meta.url)))).filter(file => file.endsWith('.sql')).sort()) {
     await pool.query(await readFile(fileURLToPath(new URL(`../migrations/${file}`, import.meta.url)), 'utf8'));
   }
-  app = await createApp({ databaseUrl: 'postgresql://unused', adminKey: operatorKey, host: '127.0.0.1', port: 0 }, new PostgresNodeRepository(pool));
+  app = await createApp({ databaseUrl: 'postgresql://unused', adminKey: operatorKey, host: '127.0.0.1', port: 0 }, { nodes: new PostgresNodeRepository(pool), workloads: new PostgresWorkloadRepository(pool) });
   await app.listen(0, '127.0.0.1'); url = await app.getUrl();
   const current = await node(binary, 'Current');
   const old = baseline ? await node(baseline, 'Baseline') : undefined;

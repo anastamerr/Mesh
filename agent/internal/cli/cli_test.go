@@ -52,6 +52,7 @@ func TestInvalidCommandsDoNotCreateState(t *testing.T) {
 		{"run", "--state-dir", dir, "--root", "files", "--listen", "0.0.0.0:7332"},
 		{"run", "--state-dir", dir, "--listen", "127.0.0.1:7332"},
 		{"run", "--state-dir", dir, "--root", "files", "--tls-cert", "missing"},
+		{"service", "install", "--state-dir", dir},
 	} {
 		if err := Execute(context.Background(), args, nil, io.Discard, io.Discard); err == nil {
 			t.Fatal("invalid command accepted")

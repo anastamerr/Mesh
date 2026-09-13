@@ -343,7 +343,7 @@ func appendCheckpoint(journal *os.File, checkpoint downloadCheckpoint) error {
 
 func (c *Client) resumeDownload(ctx context.Context, root *os.Root, journal *os.File, m Manifest, id string, checkpoints map[int]downloadCheckpoint) error {
 	for index, checkpoint := range checkpoints {
-		if index < 0 || index >= len(m.Entries) || m.Entries[index].Directory || m.Entries[index].Size == 0 || checkpoint.Offset > m.Entries[index].Size || checkpoint.Offset == 0 && checkpoint.SHA256 != emptySHA256() {
+		if index < 0 || index >= len(m.Entries) || m.Entries[index].Directory || m.Entries[index].Size == 0 || checkpoint.Offset > m.Entries[index].Size || checkpoint.Offset == 0 && checkpoint.SHA256 != emptySHA256 {
 			return errors.New("saved download state does not match the collection")
 		}
 	}
@@ -411,7 +411,7 @@ func (c *Client) resumeDownload(ctx context.Context, root *os.Root, journal *os.
 			if truncateErr := truncateDownload(root, e.Path); truncateErr != nil {
 				return errors.Join(err, truncateErr)
 			}
-			if checkpointErr := appendCheckpoint(journal, downloadCheckpoint{Index: i, Offset: 0, SHA256: emptySHA256()}); checkpointErr != nil {
+			if checkpointErr := appendCheckpoint(journal, downloadCheckpoint{Index: i, Offset: 0, SHA256: emptySHA256}); checkpointErr != nil {
 				return checkpointErr
 			}
 			if retryErr := c.downloadFileResumable(ctx, root, journal, id, i, e, 0, progress); retryErr != nil {
@@ -595,7 +595,7 @@ func truncateDownload(root *os.Root, name string) error {
 	return errors.Join(f.Sync(), f.Close())
 }
 
-func emptySHA256() string { sum := sha256.Sum256(nil); return hex.EncodeToString(sum[:]) }
+const emptySHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 func verifyDownloadedTree(ctx context.Context, parent *os.Root, name string, m Manifest) error {
 	root, err := parent.OpenRoot(name)

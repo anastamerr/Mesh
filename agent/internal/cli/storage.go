@@ -33,16 +33,12 @@ func executeStorage(ctx context.Context, args []string, input io.Reader, output,
 		return generateStorageKey(o.keyFile)
 	}
 	if o.command == "identify" {
-		root, err := os.OpenRoot(o.source)
+		folder, err := storage.Prepare(ctx, o.source, nil)
 		if err != nil {
 			return err
 		}
-		defer root.Close()
-		manifest, err := storage.Scan(ctx, root)
-		if err != nil {
-			return err
-		}
-		id, err := manifest.ID()
+		defer folder.Close()
+		id, err := folder.Manifest.ID()
 		if err != nil {
 			return err
 		}

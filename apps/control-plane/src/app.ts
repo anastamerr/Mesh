@@ -18,16 +18,36 @@ import { PAIRING_REPOSITORY, PairingRepository } from './pairing/repository';
 import { PairingService } from './pairing/pairing.service';
 import { RelayController, RelayGuard, RelayRepository, RelayTicketsController } from './relay/relay.controller';
 import { NetworkController } from './relay/network.controller';
+import { PostgresWorkloadRepository } from './database/postgres.workload-repository';
+import { WORKLOAD_REPOSITORY, WorkloadRepository } from './workloads/repository';
+import { WorkloadsController } from './workloads/workloads.controller';
+import { WorkloadsService } from './workloads/workloads.service';
 
-export async function createApp(config: Config, repository?: NodeRepository & StorageRepository & PairingRepository & RelayRepository) {
+interface AppRepositories {
+  nodes: NodeRepository & StorageRepository & PairingRepository & RelayRepository;
+  workloads: WorkloadRepository;
+}
+
+export async function createApp(config: Config, repositories?: AppRepositories) {
+  if (!repositories) {
+    const pool = createPool(config.databaseUrl);
+    repositories = { nodes: new PostgresNodeRepository(pool), workloads: new PostgresWorkloadRepository(pool) };
+  }
+  const { nodes, workloads } = repositories;
+  // Alias shared test repositories so Nest invokes their shutdown hook only once.
+  const workloadProvider = Object.is(nodes, workloads)
+    ? { provide: WORKLOAD_REPOSITORY, useExisting: NODE_REPOSITORY }
+    : { provide: WORKLOAD_REPOSITORY, useValue: workloads };
   @Module({
-    controllers: [HealthController, NodesController, PairingController, RelayController, RelayTicketsController, NetworkController, StorageController, CollectionsController],
+    controllers: [HealthController, NodesController, PairingController, RelayController, RelayTicketsController,
+      NetworkController, StorageController, CollectionsController, WorkloadsController],
     providers: [
       { provide: CONFIG, useValue: config },
-      { provide: NODE_REPOSITORY, useFactory: () => repository ?? new PostgresNodeRepository(createPool(config.databaseUrl)) },
+      { provide: NODE_REPOSITORY, useValue: nodes },
       { provide: STORAGE_REPOSITORY, useExisting: NODE_REPOSITORY },
       { provide: PAIRING_REPOSITORY, useExisting: NODE_REPOSITORY },
-      AdminGuard, RelayGuard, NodesService, PairingService,
+      workloadProvider,
+      AdminGuard, RelayGuard, NodesService, PairingService, WorkloadsService,
     ],
   })
   class AppModule {}

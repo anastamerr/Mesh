@@ -1,0 +1,100 @@
+name: mesh-cloud
+
+services:
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mesh
+      POSTGRES_USER: mesh
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes:
+      - mesh-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mesh -d mesh"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
+  control-plane:
+    build:
+      context: ../..
+      dockerfile: deploy/control-plane/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+      MESH_ADMIN_KEY_FILE: /run/secrets/admin_key
+      MESH_RELAY_KEY_FILE: /run/secrets/relay_key
+      MESH_RELAY_ORIGIN: https://${MESH_RELAY_HOST}:7443/
+      HOST: 0.0.0.0
+      PORT: 3000
+    secrets: [database_url, admin_key, relay_key]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    networks: [backend]
+
+  relay:
+    build:
+      context: ../..
+      dockerfile: deploy/relay/Dockerfile
+    restart: unless-stopped
+    command:
+      - --listen=0.0.0.0:7443
+      - --tls-cert=/run/secrets/relay_tls_cert
+      - --tls-key=/run/secrets/relay_tls_key
+      - --auth-url=https://${MESH_CONTROL_HOST}/v1/relay/authorize
+      - --auth-service-token-file=/run/secrets/relay_key
+    secrets: [relay_key, relay_tls_cert, relay_tls_key]
+    ports:
+      - "7443:7443"
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    networks: [backend]
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      MESH_CONTROL_HOST: ${MESH_CONTROL_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      control-plane:
+        condition: service_healthy
+    networks: [backend]
+
+networks:
+  backend:
+
+volumes:
+  mesh-postgres:
+  caddy-data:
+  caddy-config:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  database_url:
+    file: ./secrets/database_url
+  admin_key:
+    file: ./secrets/admin_key
+  relay_key:
+    file: ./secrets/relay_key
+  relay_tls_cert:
+    file: ./secrets/relay_tls_cert.pem
+  relay_tls_key:
+    file: ./secrets/relay_tls_key.pem

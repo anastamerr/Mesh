@@ -196,16 +196,24 @@ export class PostgresNodeRepository implements NodeRepository, StorageRepository
         AND (($1='device' AND n.credential_hash=$3) OR ($1='consumer' AND g.token_hash IS NOT NULL))
     ), expired AS (
       DELETE FROM relay_tickets WHERE expires_at<=now() AND EXISTS (SELECT 1 FROM eligible)
-    ) INSERT INTO relay_tickets(token_hash,node_id,role,expires_at)
-      SELECT $4,id,$1,expires_at FROM eligible RETURNING expires_at AS "expiresAt"`,
+    ) INSERT INTO relay_tickets(token_hash,node_id,role,route,expires_at)
+      SELECT $4,id,$1,'storage',expires_at FROM eligible RETURNING expires_at AS "expiresAt"`,
     [role,nodeId,sourceHash,ticketHash]);
     return result.rows[0]?.expiresAt ?? null;
   }
-  async authorizeRelay(role: 'device' | 'consumer', nodeId: string, tokenHash: string): Promise<{ subject: string; expiresAt: Date } | null> {
+  async authorizeRelay(role: 'device' | 'consumer', nodeId: string, route: string,
+    tokenHash: string): Promise<{ subject: string; expiresAt: Date } | null> {
     const result = await this.pool.query<{ expiresAt: Date }>(`SELECT LEAST(t.expires_at,n.credential_expires_at) AS "expiresAt"
-      FROM relay_tickets t JOIN nodes n ON n.id=t.node_id WHERE t.token_hash=$1 AND t.node_id=$2 AND t.role=$3
-      AND t.expires_at>now() AND n.credential_expires_at>now() AND n.revoked_at IS NULL`, [tokenHash,nodeId,role]);
-    return result.rows[0] ? { subject: `${role}:${nodeId}`, expiresAt: result.rows[0].expiresAt } : null;
+      FROM relay_tickets t JOIN nodes n ON n.id=t.node_id LEFT JOIN workloads w ON w.id=t.workload_id
+      WHERE t.token_hash=$1 AND t.node_id=$2 AND t.role=$3 AND t.route=$4
+      AND t.expires_at>now() AND n.credential_expires_at>now() AND n.revoked_at IS NULL
+      AND ((t.route='storage' AND t.workload_id IS NULL) OR
+        (w.node_id=t.node_id AND w.kind='application' AND w.desired_state='running'
+          AND w.observed_state='running' AND w.observed_revision=w.revision
+          AND t.route='app-' || w.id::text))`,
+    [tokenHash,nodeId,role,route]);
+    const subject = route === 'storage' ? `${role}:${nodeId}` : `${role}:${nodeId}:${route}`;
+    return result.rows[0] ? { subject, expiresAt: result.rows[0].expiresAt } : null;
   }
 
   async getNodeConnection(nodeId: string): Promise<{ nodeId: string; publicKeyFingerprint: string } | null> {
@@ -266,7 +274,9 @@ export class PostgresNodeRepository implements NodeRepository, StorageRepository
       await this.pool.query('SELECT id FROM collections LIMIT 0');
       await this.pool.query('SELECT n.id, n.credential_hash, n.inventory, g.token_hash FROM nodes n LEFT JOIN storage_grants g ON g.node_id=n.id LIMIT 0');
       await this.pool.query('SELECT pairing_secret_hash, node_credential_hash, public_key_fingerprint FROM pairing_challenges LIMIT 0');
-      await this.pool.query('SELECT token_hash FROM relay_tickets LIMIT 0');
+      await this.pool.query('SELECT token_hash, route, workload_id FROM relay_tickets LIMIT 0');
+      await this.pool.query('SELECT id, revision, observed_state FROM workloads LIMIT 0');
+      await this.pool.query('SELECT id, status, runtime_version FROM execution_environments LIMIT 0');
       return true;
     } catch { return false; }
   }

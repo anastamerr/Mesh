@@ -66,3 +66,19 @@ func (s *Store) DeviceCertificate() (tls.Certificate, string, error) {
 	hash := sha256.Sum256(leaf.RawSubjectPublicKeyInfo)
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key, Leaf: leaf}, hex.EncodeToString(hash[:]), nil
 }
+
+// PinnedDeviceTLS authenticates a device by its approved key and certificate validity.
+func PinnedDeviceTLS(fingerprint string) *tls.Config {
+	return &tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: true, VerifyConnection: func(state tls.ConnectionState) error {
+		if len(state.PeerCertificates) != 1 {
+			return errors.New("unexpected device certificate chain")
+		}
+		certificate := state.PeerCertificates[0]
+		hash := sha256.Sum256(certificate.RawSubjectPublicKeyInfo)
+		if hex.EncodeToString(hash[:]) != fingerprint || time.Now().Before(certificate.NotBefore) ||
+			time.Now().After(certificate.NotAfter) {
+			return errors.New("device identity does not match pairing")
+		}
+		return nil
+	}}
+}

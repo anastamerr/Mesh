@@ -13,6 +13,20 @@ import (
 
 var benchmarkScanManifest Manifest
 
+func BenchmarkManifestValidation(b *testing.B) {
+	m := Manifest{Version: 1, Entries: make([]Entry, MaxEntries)}
+	for i := range m.Entries {
+		m.Entries[i] = Entry{Path: fmt.Sprintf("%05d.txt", i), SHA256: emptySHA256}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := m.Validate(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkScan(b *testing.B) {
 	const (
 		fileCount = 500
@@ -38,7 +52,7 @@ func BenchmarkScan(b *testing.B) {
 	b.SetBytes(fileCount * fileSize)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchmarkScanManifest, err = Scan(ctx, root)
+		benchmarkScanManifest, err = Scan(ctx, root, nil)
 		if err != nil {
 			b.Fatal(err)
 		}

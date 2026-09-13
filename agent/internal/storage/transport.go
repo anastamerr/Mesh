@@ -3,12 +3,12 @@ package storage
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"net"
 	"net/http"
-	"time"
+
+	"mesh.local/agent/internal/state"
 )
 
 // UseDeviceTransport verifies the key approved at pairing, independent of the
@@ -22,20 +22,7 @@ func (c *Client) UseDeviceTransport(fingerprint string, dial func(context.Contex
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.DialContext = dial
-	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS13,
-		// Pairing pins the public key instead of a DNS name or public CA chain.
-		InsecureSkipVerify: true,
-		VerifyConnection: func(cs tls.ConnectionState) error {
-			if len(cs.PeerCertificates) != 1 {
-				return errors.New("unexpected device certificate chain")
-			}
-			cert := cs.PeerCertificates[0]
-			hash := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
-			if hex.EncodeToString(hash[:]) != fingerprint || time.Now().Before(cert.NotBefore) || time.Now().After(cert.NotAfter) {
-				return errors.New("device identity does not match pairing")
-			}
-			return nil
-		}}
+	transport.TLSClientConfig = state.PinnedDeviceTLS(fingerprint)
 	c.http.Transport = transport
 	return nil
 }

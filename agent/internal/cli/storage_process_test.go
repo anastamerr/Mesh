@@ -108,7 +108,7 @@ func TestStorageCLIResumesAfterProcessKill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := storage.Scan(ctx, sourceRoot)
+	manifest, err := storage.Scan(ctx, sourceRoot, nil)
 	sourceRoot.Close()
 	if err != nil {
 		t.Fatal(err)

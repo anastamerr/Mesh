@@ -84,7 +84,7 @@ func (c *Client) Heartbeat(ctx context.Context, id, credential string, sequence 
 	}{sequence, inventory})
 }
 
-func (c *Client) postAccepted(ctx context.Context, path, credential string, body any) error {
+func (c *Client) postAccepted(ctx context.Context, path, credential string, body interface{}) error {
 	var ack struct {
 		Accepted bool `json:"accepted"`
 	}
@@ -97,7 +97,7 @@ func (c *Client) postAccepted(ctx context.Context, path, credential string, body
 	return nil
 }
 
-func (c *Client) request(ctx context.Context, method, path, credential string, body, output any) error {
+func (c *Client) request(ctx context.Context, method, path, credential string, body, output interface{}) error {
 	var payload io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)

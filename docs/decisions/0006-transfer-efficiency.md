@@ -1,6 +1,6 @@
 # ADR 0006: Bounded file batches and foreground node operation
 
-Status: implemented; local Windows runtime checks pass. Remote-device and service lifecycle validation remain pending.
+Status: implemented; local Windows runtime checks pass. Public-WAN and reboot/sleep service lifecycle validation remain pending.
 
 ## Transfer protocol
 
@@ -22,7 +22,7 @@ Batch retrieval opens the published collection root once per request. The client
 
 ## Recovery and feedback
 
-Managed copies retry transient connection and HTTP 503 failures up to three total attempts, waiting one then two seconds. Each attempt re-reads durable offsets using the already scanned manifest. Permanent denial, malformed acknowledgements and checksum conflicts are not automatically retried. Cancellation interrupts the wait. Download resumption across failures/process restarts remains future work; ordinary failed downloads clean partial output.
+Managed copies retry transient connection and HTTP 503 failures up to three total attempts, waiting one then two seconds. Each attempt re-reads durable offsets using the already scanned manifest. Permanent denial, malformed acknowledgements and checksum conflicts are not automatically retried. Cancellation interrupts the wait. Managed downloads use a private sibling staging directory and synced prefix journal, verify saved prefixes before reuse, and publish the destination only after full verification; rerunning the same destination resumes across connection or process failure.
 
 Transient connection failures include interrupted JSON response bodies after headers have arrived. Such a response may follow a durable commit, so recovery still reconciles saved offsets rather than replaying an uncertain write.
 
@@ -32,10 +32,10 @@ Structured response headers distinguish admission pressure from unavailable cont
 
 After enrollment, `mesh-agent run --root <dedicated-folder>` runs heartbeats and enrolled storage in one process. It accepts the same storage listen/TLS settings as `storage serve`. A single owner holds the identity lock; storage and heartbeat tasks share only immutable credential values. Logs are serialized. A permanent heartbeat failure or a storage-listener failure cancels both tasks and releases their locks. Ctrl+C stops both. `run` without `--root` keeps the existing heartbeat-only behavior.
 
-This removes the need to manage two foreground processes. It does not install a Windows service, provision certificates, configure router access, or provide an end-user installer. SSH in the Windows experiment was development access, not the intended onboarding flow.
+This removes the need to manage two foreground processes. The later guided setup and Windows service compose that lifecycle without requiring SSH or router forwarding. Public certificates remain a cloud-deployment concern, and the release artifact is not yet a signed native installer.
 
 ## Next onboarding steps
 
-The intended user flow is: install Mesh, pair with a short-lived code, select a storage folder, and see a clear readiness result. Endpoint discovery and an authenticated outbound gateway should eliminate user-managed IP addresses, certificates and router rules. Service installation must follow real boot/logout/sleep validation. Keep those changes as separate, testable slices rather than bundling unvalidated system modifications into this transfer change.
+The implemented guided flow pairs with a short-lived code, selects a storage folder, discovers the authenticated outbound relay, optionally provisions compute, and optionally installs same-user service hosting. The remaining onboarding evidence is signed distribution plus real boot, logout, sleep, WSL, and separate-network validation.
 
 Measured results and reproduction commands are in [the performance report](../testing/transfer-performance.md).

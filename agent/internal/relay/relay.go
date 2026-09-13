@@ -6,6 +6,7 @@ package relay
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -14,6 +15,7 @@ type Role string
 const (
 	RoleDevice   Role = "device"
 	RoleConsumer Role = "consumer"
+	RouteStorage      = "storage"
 )
 
 var (
@@ -25,6 +27,7 @@ var (
 type AuthRequest struct {
 	Role   Role
 	NodeID string
+	Route  string
 	Bearer string
 }
 
@@ -42,3 +45,25 @@ type Authorizer interface {
 }
 
 func validRole(role Role) bool { return role == RoleDevice || role == RoleConsumer }
+
+func validRoute(route string) bool {
+	if route == RouteStorage {
+		return true
+	}
+	if len(route) < 5 || len(route) > 80 || !strings.HasPrefix(route, "app-") {
+		return false
+	}
+	for _, character := range route[4:] {
+		if !((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func routeSubject(role Role, nodeID, route string) string {
+	if route == RouteStorage {
+		return string(role) + ":" + nodeID
+	}
+	return string(role) + ":" + nodeID + ":" + route
+}

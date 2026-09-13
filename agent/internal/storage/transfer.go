@@ -17,7 +17,7 @@ func Prepare(ctx context.Context, source string, progress func(TransferEvent)) (
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := scan(ctx, root, progress)
+	manifest, err := Scan(ctx, root, progress)
 	if err != nil {
 		root.Close()
 		return nil, err
