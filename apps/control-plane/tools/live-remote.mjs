@@ -12,6 +12,7 @@ import { Pool } from 'pg';
 import { z } from 'zod';
 import { createApp } from '../dist/app.js';
 import { PostgresNodeRepository } from '../dist/database/postgres.repository.js';
+import { PostgresWorkloadRepository } from '../dist/database/postgres.workload-repository.js';
 
 const database = process.env.MESH_TEST_DATABASE_URL;
 if (!database) throw new Error('Set MESH_TEST_DATABASE_URL to a disposable test database.');
@@ -75,7 +76,7 @@ try {
     await pool.query(await readFile(fileURLToPath(new URL(`../migrations/${file}`, import.meta.url)), 'utf8'));
   }
   const configuration = { databaseUrl: 'postgresql://unused', adminKey: operator, relayKey, relayOrigin: undefined, host: '127.0.0.1', port: 0 };
-  app = await createApp(configuration, new PostgresNodeRepository(pool));
+  app = await createApp(configuration, { nodes: new PostgresNodeRepository(pool), workloads: new PostgresWorkloadRepository(pool) });
   await app.listen(0, '127.0.0.1'); controller = await app.getUrl();
   const identity = join(directory, 'identity');
   let pairing = start(binary, ['pair', '--server', controller, '--name', 'Spare laptop', '--state-dir', identity]);

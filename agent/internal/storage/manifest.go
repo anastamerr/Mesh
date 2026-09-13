@@ -45,7 +45,7 @@ func validPath(p string) bool {
 	if p == "" || len(p) > 1024 || path.Clean(p) != p || strings.HasPrefix(p, "/") {
 		return false
 	}
-	for _, part := range strings.Split(p, "/") {
+	for part := range strings.SplitSeq(p, "/") {
 		if part == "." || part == ".." || len(part) > 200 || strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") {
 			return false
 		}
@@ -54,7 +54,8 @@ func validPath(p string) bool {
 				return false
 			}
 		}
-		base := strings.ToUpper(strings.SplitN(part, ".", 2)[0])
+		base, _, _ := strings.Cut(part, ".")
+		base = strings.ToUpper(base)
 		if base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" || base == "CONIN$" || base == "CONOUT$" || base == "CLOCK$" || (len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '0' && base[3] <= '9') {
 			return false
 		}
@@ -62,8 +63,15 @@ func validPath(p string) bool {
 	return true
 }
 func validID(id string) bool {
-	b, err := hex.DecodeString(id)
-	return err == nil && len(b) == 32 && strings.ToLower(id) == id
+	if len(id) != sha256.Size*2 {
+		return false
+	}
+	for _, c := range id {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (m Manifest) Validate() error {

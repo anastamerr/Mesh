@@ -99,20 +99,15 @@ func deviceWorker(ctx context.Context, c DeviceConfig) {
 
 func bridgeConns(ctx context.Context, a, b net.Conn) {
 	done := make(chan struct{}, 2)
-	cancelled := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = a.Close()
-			_ = b.Close()
-		case <-cancelled:
-		}
-	}()
+	stop := context.AfterFunc(ctx, func() {
+		_ = a.Close()
+		_ = b.Close()
+	})
 	go copyHalf(a, b, done)
 	go copyHalf(b, a, done)
 	<-done
 	_ = a.Close()
 	_ = b.Close()
 	<-done
-	close(cancelled)
+	stop()
 }

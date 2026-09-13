@@ -22,14 +22,11 @@ func (store *Store) Import(ctx context.Context, source string) (string, Manifest
 
 func (store *Store) importPrepared(ctx context.Context, folder *PreparedFolder) (string, error) {
 	manifest := folder.Manifest
-	id, err := manifest.ID()
-	if err != nil {
-		return "", err
-	}
 	progress, err := store.Begin(ctx, manifest)
 	if err != nil {
 		return "", err
 	}
+	id := progress.ID
 	if progress.Complete {
 		return id, nil
 	}

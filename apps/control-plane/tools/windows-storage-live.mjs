@@ -12,6 +12,7 @@ import { Pool } from 'pg';
 import { z } from 'zod';
 import { createApp } from '../dist/app.js';
 import { PostgresNodeRepository } from '../dist/database/postgres.repository.js';
+import { PostgresWorkloadRepository } from '../dist/database/postgres.workload-repository.js';
 
 const configurationSchema = z.object({
   MESH_TEST_DATABASE_URL: z.string().min(1),
@@ -271,7 +272,7 @@ try {
     for (const file of (await readdir(migrations)).filter(name => name.endsWith('.sql')).sort()) {
       await pool.query(await readFile(join(migrations, file), 'utf8'));
     }
-    app = await createApp({ databaseUrl: 'postgresql://unused', adminKey: operatorKey, host: '127.0.0.1', port: 0 }, new PostgresNodeRepository(pool));
+    app = await createApp({ databaseUrl: 'postgresql://unused', adminKey: operatorKey, host: '127.0.0.1', port: 0 }, { nodes: new PostgresNodeRepository(pool), workloads: new PostgresWorkloadRepository(pool) });
     await app.listen(0, '127.0.0.1');
     controllerUrl = await app.getUrl();
   });

@@ -23,30 +23,27 @@ import { WORKLOAD_REPOSITORY, WorkloadRepository } from './workloads/repository'
 import { WorkloadsController } from './workloads/workloads.controller';
 import { WorkloadsService } from './workloads/workloads.service';
 
-type AppRepository = NodeRepository & StorageRepository & PairingRepository & RelayRepository & WorkloadRepository;
+interface AppRepositories {
+  nodes: NodeRepository & StorageRepository & PairingRepository & RelayRepository;
+  workloads: WorkloadRepository;
+}
 
-export async function createApp(config: Config, repository?: AppRepository) {
-  let nodeRepository: NodeRepository;
-  let workloadRepository: WorkloadRepository;
-  if (repository) {
-    nodeRepository = repository;
-    workloadRepository = repository;
-  } else {
+export async function createApp(config: Config, repositories?: AppRepositories) {
+  if (!repositories) {
     const pool = createPool(config.databaseUrl);
-    nodeRepository = new PostgresNodeRepository(pool);
-    workloadRepository = new PostgresWorkloadRepository(pool);
+    repositories = { nodes: new PostgresNodeRepository(pool), workloads: new PostgresWorkloadRepository(pool) };
   }
-  // An injected composite repository is one lifecycle owner. Alias its
-  // workload token so Nest does not invoke shutdown hooks twice on one value.
-  const workloadProvider = repository
+  const { nodes, workloads } = repositories;
+  // Alias shared test repositories so Nest invokes their shutdown hook only once.
+  const workloadProvider = Object.is(nodes, workloads)
     ? { provide: WORKLOAD_REPOSITORY, useExisting: NODE_REPOSITORY }
-    : { provide: WORKLOAD_REPOSITORY, useValue: workloadRepository };
+    : { provide: WORKLOAD_REPOSITORY, useValue: workloads };
   @Module({
     controllers: [HealthController, NodesController, PairingController, RelayController, RelayTicketsController,
       NetworkController, StorageController, CollectionsController, WorkloadsController],
     providers: [
       { provide: CONFIG, useValue: config },
-      { provide: NODE_REPOSITORY, useValue: nodeRepository },
+      { provide: NODE_REPOSITORY, useValue: nodes },
       { provide: STORAGE_REPOSITORY, useExisting: NODE_REPOSITORY },
       { provide: PAIRING_REPOSITORY, useExisting: NODE_REPOSITORY },
       workloadProvider,

@@ -2,9 +2,7 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +11,8 @@ import (
 
 	"mesh.local/agent/internal/control"
 	"mesh.local/agent/internal/relay"
+	"mesh.local/agent/internal/state"
+	"mesh.local/agent/internal/stream"
 )
 
 func serveApplication(ctx context.Context, controller *control.Client, operator, workloadID, listenAddress,
@@ -65,7 +65,7 @@ func connectApplication(ctx context.Context, controller *control.Client, operato
 		fmt.Fprintln(logs, "Application relay is unavailable; local connection closed.")
 		return
 	}
-	secure := tls.Client(route, pinnedApplicationTLS(ticket.PublicKeyFingerprint))
+	secure := tls.Client(route, state.PinnedDeviceTLS(ticket.PublicKeyFingerprint))
 	handshake, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if err := secure.HandshakeContext(handshake); err != nil {
@@ -73,35 +73,5 @@ func connectApplication(ctx context.Context, controller *control.Client, operato
 		fmt.Fprintln(logs, "Application device identity could not be verified; local connection closed.")
 		return
 	}
-	bridgeLocalApplication(ctx, local, secure)
-}
-
-func pinnedApplicationTLS(fingerprint string) *tls.Config {
-	return &tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: true, VerifyConnection: func(state tls.ConnectionState) error {
-		if len(state.PeerCertificates) != 1 {
-			return errors.New("unexpected device certificate chain")
-		}
-		certificate := state.PeerCertificates[0]
-		hash := sha256.Sum256(certificate.RawSubjectPublicKeyInfo)
-		if hex.EncodeToString(hash[:]) != fingerprint || time.Now().Before(certificate.NotBefore) ||
-			time.Now().After(certificate.NotAfter) {
-			return errors.New("device identity does not match pairing")
-		}
-		return nil
-	}}
-}
-
-func bridgeLocalApplication(ctx context.Context, local, remote net.Conn) {
-	done := make(chan struct{}, 2)
-	stop := context.AfterFunc(ctx, func() {
-		_ = local.Close()
-		_ = remote.Close()
-	})
-	go func() { _, _ = io.Copy(local, remote); done <- struct{}{} }()
-	go func() { _, _ = io.Copy(remote, local); done <- struct{}{} }()
-	<-done
-	_ = local.Close()
-	_ = remote.Close()
-	<-done
-	stop()
+	stream.Bridge(ctx, local, secure)
 }

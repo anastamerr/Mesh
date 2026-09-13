@@ -14,12 +14,6 @@ const workloadColumns = `w.id,w.node_id AS "nodeId",w.execution_environment_id A
   w.created_at AS "createdAt",
   w.updated_at AS "updatedAt",w.observed_at AS "observedAt"`;
 
-function parameters(input: CreateWorkload): readonly (string | number | readonly string[] | null)[] {
-  return [input.id, input.nodeId, input.name, input.kind, input.image, input.command,
-    input.resources.cpuMillis, input.resources.memoryBytes, input.inputCollectionId,
-    input.servicePort, input.desiredState];
-}
-
 function specificationHash(input: CreateWorkload): string {
   const canonical = [input.id, input.nodeId, input.name, input.kind, input.image, input.command,
     input.resources.cpuMillis, input.resources.memoryBytes, input.inputCollectionId, input.servicePort, input.desiredState];
@@ -62,7 +56,9 @@ export class PostgresWorkloadRepository implements WorkloadRepository {
         AND (SELECT count(*) FROM workloads existing WHERE existing.node_id=n.id AND
           (existing.kind='application' OR existing.observed_state NOT IN ('succeeded','failed')))<100
         ON CONFLICT(id) DO NOTHING RETURNING ${workloadColumns}`,
-      [...parameters(input).slice(0, 5), JSON.stringify(input.command), ...parameters(input).slice(6), creationHash]);
+      [input.id, input.nodeId, input.name, input.kind, input.image, JSON.stringify(input.command),
+        input.resources.cpuMillis, input.resources.memoryBytes, input.inputCollectionId,
+        input.servicePort, input.desiredState, creationHash]);
       const createdWorkload = inserted.rows[0];
       if (createdWorkload) {
         await client.query("INSERT INTO audit_events(action,node_id) VALUES('workload.created',$1)", [input.nodeId]);

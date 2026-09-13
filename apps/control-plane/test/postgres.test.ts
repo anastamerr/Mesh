@@ -4,7 +4,8 @@ import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { Pool } from 'pg';
-import { PostgresAppRepository } from '../src/database/postgres.app-repository';
+import { PostgresNodeRepository } from '../src/database/postgres.repository';
+import { PostgresWorkloadRepository } from '../src/database/postgres.workload-repository';
 
 // Opt in with a dedicated test database. Each run creates and removes its own
 // schema; it never truncates existing tables. Account needs CREATE SCHEMA.
@@ -21,7 +22,8 @@ test('PostgreSQL atomically consumes enrollment and serializes heartbeats/revoca
     for (const name of (await readdir(resolve(__dirname, '../migrations'))).filter(name => name.endsWith('.sql')).sort()) {
       await pool.query(await readFile(resolve(__dirname, '../migrations', name), 'utf8'));
     }
-    const repository = new PostgresAppRepository(pool);
+    const repository = new PostgresNodeRepository(pool);
+    const workloads = new PostgresWorkloadRepository(pool);
     await repository.createEnrollment('enrollment-hash', new Date(Date.now() + 60_000));
     const input = { enrollmentToken: 'unused', name: 'Lenovo', platform: 'windows' as const,
       architecture: 'amd64' as const, agentVersion: 'dev' };
@@ -53,46 +55,46 @@ test('PostgreSQL atomically consumes enrollment and serializes heartbeats/revoca
       image: `example/job@sha256:${'a'.repeat(64)}`, command: ['run'],
       resources: { cpuMillis: 500, memoryBytes: 128 * 1024 * 1024 }, inputCollectionId: null,
       desiredState: 'running' as const, servicePort: null };
-    const environment = await repository.reportExecutionEnvironment(node.id, hash,
+    const environment = await workloads.reportExecutionEnvironment(node.id, hash,
       { kind: 'docker-linux', architecture: 'amd64', status: 'ready', runtimeVersion: '28.1.0' });
     assert.ok(environment);
-    assert.equal((await repository.createWorkload(workload)).kind, 'created');
-    assert.equal((await repository.createWorkload(workload)).kind, 'existing');
-    assert.equal((await repository.createWorkload({ ...workload, name: 'Collision' })).kind, 'conflict');
-    assert.equal((await repository.assignments(node.id, hash))?.length, 1);
+    assert.equal((await workloads.createWorkload(workload)).kind, 'created');
+    assert.equal((await workloads.createWorkload(workload)).kind, 'existing');
+    assert.equal((await workloads.createWorkload({ ...workload, name: 'Collision' })).kind, 'conflict');
+    assert.equal((await workloads.assignments(node.id, hash))?.length, 1);
     const pulling = { revision: 1, state: 'pulling' as const, exitCode: null, failureCode: null, outputCollectionId: null };
-    assert.equal(await repository.observeWorkload(node.id, hash, workload.id, { ...pulling, revision: 2 }), 'stale');
-    assert.equal(await repository.observeWorkload(node.id, hash, workload.id, pulling), 'accepted');
+    assert.equal(await workloads.observeWorkload(node.id, hash, workload.id, { ...pulling, revision: 2 }), 'stale');
+    assert.equal(await workloads.observeWorkload(node.id, hash, workload.id, pulling), 'accepted');
     const outputCollectionId = 'b'.repeat(64);
     assert.equal(await repository.confirmCollection(node.id, hash,
       { id: outputCollectionId, fileCount: 1, totalBytes: 42 }), true);
-    assert.equal(await repository.observeWorkload(node.id, hash, workload.id,
+    assert.equal(await workloads.observeWorkload(node.id, hash, workload.id,
       { revision: 1, state: 'succeeded', exitCode: 0, failureCode: null, outputCollectionId }), 'accepted');
     assert.equal((await repository.listCollections(node.id, '')).find(item => item.id === outputCollectionId)?.name,
       'Integration job output');
-    assert.equal((await repository.assignments(node.id, hash))?.length, 0);
-    assert.equal(await repository.observeWorkload(node.id, hash, workload.id, pulling), 'stale');
+    assert.equal((await workloads.assignments(node.id, hash))?.length, 0);
+    assert.equal(await workloads.observeWorkload(node.id, hash, workload.id, pulling), 'stale');
     const application = { ...workload, id: randomUUID(), name: 'Integration application', kind: 'application' as const,
       desiredState: 'stopped' as const, servicePort: 8080 };
-    assert.equal((await repository.createWorkload(application)).kind, 'created');
-    const started = await repository.setWorkloadState(application.id, 'running');
+    assert.equal((await workloads.createWorkload(application)).kind, 'created');
+    const started = await workloads.setWorkloadState(application.id, 'running');
     assert.ok(started && started !== 'invalid-state');
     assert.equal(started.desiredState, 'running');
     assert.equal(started.revision, 2);
-    const replayed = await repository.createWorkload(application);
+    const replayed = await workloads.createWorkload(application);
     assert.equal(replayed.kind, 'existing');
     if (replayed.kind === 'existing') assert.equal(replayed.workload.revision, 2);
     await pool.query('UPDATE nodes SET public_key_fingerprint=$2 WHERE id=$1', [node.id, 'c'.repeat(64)]);
-    assert.equal(await repository.observeWorkload(node.id, hash, application.id,
+    assert.equal(await workloads.observeWorkload(node.id, hash, application.id,
       { revision: 2, state: 'running', exitCode: null, failureCode: null, outputCollectionId: null }), 'accepted');
     const deviceTicketHash = 'd'.repeat(64), consumerTicketHash = 'e'.repeat(64);
-    const deviceTicket = await repository.createApplicationDeviceTicket(node.id, hash, application.id, deviceTicketHash);
-    const consumerTicket = await repository.createApplicationConsumerTicket(application.id, consumerTicketHash);
+    const deviceTicket = await workloads.createApplicationDeviceTicket(node.id, hash, application.id, deviceTicketHash);
+    const consumerTicket = await workloads.createApplicationConsumerTicket(application.id, consumerTicketHash);
     assert.equal(deviceTicket?.route, `app-${application.id}`);
     assert.equal(consumerTicket?.servicePort, 8080);
     assert.ok(await repository.authorizeRelay('device', node.id, deviceTicket!.route, deviceTicketHash));
     assert.ok(await repository.authorizeRelay('consumer', node.id, consumerTicket!.route, consumerTicketHash));
-    await repository.setWorkloadState(application.id, 'stopped');
+    await workloads.setWorkloadState(application.id, 'stopped');
     assert.equal(await repository.authorizeRelay('consumer', node.id, consumerTicket!.route, consumerTicketHash), null);
     await pool.query("UPDATE storage_grants SET expires_at=now()-interval '1 second' WHERE token_hash='grant-hash'");
     assert.equal(await repository.validateStorageGrant(node.id, hash, 'grant-hash', permission), false);

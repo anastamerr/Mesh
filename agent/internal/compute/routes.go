@@ -11,6 +11,7 @@ import (
 
 	"mesh.local/agent/internal/control"
 	"mesh.local/agent/internal/relay"
+	"mesh.local/agent/internal/stream"
 )
 
 type ApplicationRouteController interface {
@@ -19,7 +20,7 @@ type ApplicationRouteController interface {
 }
 
 type ApplicationRouteLauncher interface {
-	Proxy(context.Context, control.Workload) (net.Conn, error)
+	Proxy(context.Context, control.Workload) (io.ReadWriteCloser, error)
 }
 
 type applicationRoute struct {
@@ -126,29 +127,14 @@ func (routes *applicationRoutes) serve(ctx context.Context, workload control.Wor
 		}})
 }
 
-func serveEncryptedApplication(ctx context.Context, plain, proxy net.Conn, certificate tls.Certificate) {
+func serveEncryptedApplication(ctx context.Context, plain net.Conn, proxy io.ReadWriteCloser, certificate tls.Certificate) {
 	secure := tls.Server(plain, &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{certificate}})
 	if err := secure.HandshakeContext(ctx); err != nil {
 		_ = secure.Close()
 		_ = proxy.Close()
 		return
 	}
-	bridgeApplication(ctx, secure, proxy)
-}
-
-func bridgeApplication(ctx context.Context, left, right net.Conn) {
-	done := make(chan struct{}, 2)
-	stop := context.AfterFunc(ctx, func() {
-		_ = left.Close()
-		_ = right.Close()
-	})
-	go func() { _, _ = io.Copy(left, right); done <- struct{}{} }()
-	go func() { _, _ = io.Copy(right, left); done <- struct{}{} }()
-	<-done
-	_ = left.Close()
-	_ = right.Close()
-	<-done
-	stop()
+	stream.Bridge(ctx, secure, proxy)
 }
 
 func (routes *applicationRoutes) close() {

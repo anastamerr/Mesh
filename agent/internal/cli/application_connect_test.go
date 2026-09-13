@@ -20,10 +20,10 @@ func TestApplicationTLSVerifiesPairedDeviceKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	connection := tls.ConnectionState{PeerCertificates: []*x509.Certificate{certificate.Leaf}}
-	if err := pinnedApplicationTLS(fingerprint).VerifyConnection(connection); err != nil {
+	if err := state.PinnedDeviceTLS(fingerprint).VerifyConnection(connection); err != nil {
 		t.Fatal("paired device key was rejected", err)
 	}
-	if err := pinnedApplicationTLS(strings.Repeat("0", 64)).VerifyConnection(connection); err == nil {
+	if err := state.PinnedDeviceTLS(strings.Repeat("0", 64)).VerifyConnection(connection); err == nil {
 		t.Fatal("different device key was accepted")
 	}
 }

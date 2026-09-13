@@ -15,10 +15,7 @@ import (
 // Scan rejects links and special files; ordinary files are streamed for hashes.
 // The source is read again on upload, and the server verifies it against this
 // manifest, so concurrent source changes cannot silently produce a bad copy.
-func Scan(ctx context.Context, root *os.Root) (Manifest, error) {
-	return scan(ctx, root, nil)
-}
-func scan(ctx context.Context, root *os.Root, progress func(TransferEvent)) (Manifest, error) {
+func Scan(ctx context.Context, root *os.Root, progress func(TransferEvent)) (Manifest, error) {
 	m := Manifest{Version: 1, Entries: []Entry{}}
 	var copyBuffer []byte
 	var hashed int64

@@ -10,11 +10,6 @@ import (
 
 const maxBatchReceiveWorkers = 4
 
-type batchReceiveJob struct {
-	entry Entry
-	data  []byte
-}
-
 // receiveBatch reads one bounded HTTP body sequentially while distinct files are
 // verified, written, and synced concurrently. It returns only after every worker
 // has released its file, including after cancellation or an error.
@@ -22,7 +17,7 @@ func receiveBatch(ctx context.Context, cancel context.CancelFunc, body io.ReadCl
 	stopClose := context.AfterFunc(ctx, func() { _ = body.Close() })
 	defer stopClose()
 	workerCount := min(maxBatchReceiveWorkers, len(indices))
-	jobs := make(chan batchReceiveJob)
+	jobs := make(chan batchJob)
 	var workers sync.WaitGroup
 	var failOnce sync.Once
 	var firstErr error
@@ -71,7 +66,7 @@ func receiveBatch(ctx context.Context, cancel context.CancelFunc, body io.ReadCl
 			break
 		}
 		select {
-		case jobs <- batchReceiveJob{entry: e, data: data}:
+		case jobs <- batchJob{entry: e, data: data}:
 		case <-ctx.Done():
 			fail(ctx.Err())
 		}

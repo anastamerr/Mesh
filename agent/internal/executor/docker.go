@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,26 +11,11 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"mesh.local/agent/internal/stream"
 )
 
 const maxDockerOutput = 64 * 1024
-
-type boundedOutput struct {
-	buffer    bytes.Buffer
-	remaining int
-	truncated bool
-}
-
-func (output *boundedOutput) Write(data []byte) (int, error) {
-	written := len(data)
-	if len(data) > output.remaining {
-		data = data[:output.remaining]
-		output.truncated = true
-	}
-	output.remaining -= len(data)
-	_, _ = output.buffer.Write(data)
-	return written, nil
-}
 
 type DockerCLI struct {
 	program string
@@ -51,7 +35,7 @@ func (docker *DockerCLI) run(ctx context.Context, arguments ...string) ([]byte, 
 		return docker.command(ctx, arguments...)
 	}
 	command := exec.CommandContext(ctx, docker.program, arguments...)
-	output := &boundedOutput{remaining: maxDockerOutput}
+	output := &stream.LimitedBuffer{Remaining: maxDockerOutput}
 	command.Stdout = output
 	command.Stderr = io.Discard
 	if err := command.Run(); err != nil {
@@ -60,10 +44,10 @@ func (docker *DockerCLI) run(ctx context.Context, arguments ...string) ([]byte, 
 		}
 		return nil, errors.New("container runtime command failed")
 	}
-	if output.truncated {
+	if output.Truncated {
 		return nil, errors.New("container runtime response exceeded limit")
 	}
-	return output.buffer.Bytes(), nil
+	return output.Buffer.Bytes(), nil
 }
 
 func (docker *DockerCLI) Inspect(ctx context.Context, name string) (Container, bool, error) {

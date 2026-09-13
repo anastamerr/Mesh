@@ -10,9 +10,39 @@ const key = 'test_admin_key_012345678901234567890123456789';
 const admin = { authorization: `Bearer ${key}` };
 const inventory = { cpuLogicalCores: 8, memoryTotalBytes: 16_000, memoryAvailableBytes: 8_000 };
 
+test('domain repositories route independently and close each lifecycle owner once', async t => {
+  class LifecycleRepository extends MemoryRepository {
+    shutdowns = 0;
+    workloadReads = 0;
+    onApplicationShutdown() { this.shutdowns++; }
+    override async listWorkloads() {
+      this.workloadReads++;
+      return super.listWorkloads();
+    }
+  }
+  for (const shared of [false, true]) {
+    await t.test(shared ? 'shared repository' : 'separate repositories', async () => {
+      const nodes = new LifecycleRepository();
+      const workloads = shared ? nodes : new LifecycleRepository();
+      const app = await createApp({ adminKey: key, databaseUrl: 'postgresql://unused', host: '127.0.0.1', port: 0 },
+        { nodes, workloads });
+      try {
+        const response = await app.getHttpAdapter().getInstance().inject({ method: 'GET', url: '/v1/workloads', headers: admin });
+        assert.equal(response.statusCode, 200);
+        assert.equal(workloads.workloadReads, 1);
+        assert.equal(nodes.workloadReads, shared ? 1 : 0);
+      } finally {
+        await app.close();
+      }
+      assert.equal(nodes.shutdowns, 1);
+      assert.equal(workloads.shutdowns, 1);
+    });
+  }
+});
+
 async function setup(t: TestContext) {
   const repository = new MemoryRepository();
-  const app = await createApp({ adminKey: key, databaseUrl: 'postgresql://unused', host: '127.0.0.1', port: 3000 }, repository);
+  const app = await createApp({ adminKey: key, databaseUrl: 'postgresql://unused', host: '127.0.0.1', port: 3000 }, { nodes: repository, workloads: repository });
   t.after(() => app.close());
   await app.getHttpAdapter().getInstance().ready();
   return { repository, request: app.getHttpAdapter().getInstance().inject.bind(app.getHttpAdapter().getInstance()) };

@@ -69,12 +69,6 @@ func Once(ctx context.Context, controller Controller, launcher Launcher, publish
 			}
 		}
 		if workload.InputCollectionID != nil {
-			if storageRoot == "" {
-				if err := controller.ObserveWorkload(ctx, nodeID, credential, workload.ID, failure(workload.Revision)); err != nil {
-					return err
-				}
-				continue
-			}
 			request.InputPath, err = filepath.Abs(filepath.Join(storageRoot, "collections", *workload.InputCollectionID))
 			if err != nil {
 				return errors.New("cannot resolve collection path")

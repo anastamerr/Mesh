@@ -6,36 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"mesh.local/agent/internal/control"
 	"mesh.local/agent/internal/executor"
+	"mesh.local/agent/internal/stream"
 )
 
 const maxExecutorResponse = 64 * 1024
-
-type boundedOutput struct {
-	buffer    bytes.Buffer
-	remaining int
-	truncated bool
-}
-
-func (output *boundedOutput) Write(data []byte) (int, error) {
-	written := len(data)
-	if len(data) > output.remaining {
-		data = data[:output.remaining]
-		output.truncated = true
-	}
-	output.remaining -= len(data)
-	_, _ = output.buffer.Write(data)
-	return written, nil
-}
 
 type ProcessLauncher struct {
 	program      string
@@ -81,7 +63,7 @@ func NewProcessLauncher(distribution string) *ProcessLauncher {
 func commandOutput(ctx context.Context, program string, input []byte, arguments ...string) ([]byte, error) {
 	command := exec.CommandContext(ctx, program, arguments...)
 	command.Stdin = bytes.NewReader(input)
-	output := &boundedOutput{remaining: maxExecutorResponse}
+	output := &stream.LimitedBuffer{Remaining: maxExecutorResponse}
 	command.Stdout = output
 	command.Stderr = io.Discard
 	if err := command.Run(); err != nil {
@@ -90,10 +72,10 @@ func commandOutput(ctx context.Context, program string, input []byte, arguments 
 		}
 		return nil, errors.New("executor process failed")
 	}
-	if output.truncated {
+	if output.Truncated {
 		return nil, errors.New("executor response exceeded limit")
 	}
-	return output.buffer.Bytes(), nil
+	return output.Buffer.Bytes(), nil
 }
 
 func (launcher *ProcessLauncher) linuxPath(ctx context.Context, path string) (string, error) {
@@ -142,7 +124,7 @@ func (launcher *ProcessLauncher) Reconcile(ctx context.Context, request executor
 	return observation, nil
 }
 
-func (launcher *ProcessLauncher) Proxy(ctx context.Context, workload control.Workload) (net.Conn, error) {
+func (launcher *ProcessLauncher) Proxy(ctx context.Context, workload control.Workload) (io.ReadWriteCloser, error) {
 	if !control.ValidWorkload(workload, workload.NodeID) || workload.Kind != "application" || workload.ServicePort == nil {
 		return nil, errors.New("invalid application proxy assignment")
 	}
@@ -167,11 +149,8 @@ func (launcher *ProcessLauncher) Proxy(ctx context.Context, workload control.Wor
 		_ = output.Close()
 		return nil, errors.New("cannot start executor proxy")
 	}
-	connection := &processConn{input: input, output: output, command: command, done: make(chan struct{})}
-	go func() {
-		_ = command.Wait()
-		close(connection.done)
-	}()
+	connection := &processConn{input: input, output: output, command: command}
+	go func() { _ = command.Wait() }()
 	return connection, nil
 }
 
@@ -179,29 +158,16 @@ type processConn struct {
 	input   io.WriteCloser
 	output  io.ReadCloser
 	command *exec.Cmd
-	done    chan struct{}
 	close   sync.Once
 }
 
-func (connection *processConn) Read(data []byte) (int, error)    { return connection.output.Read(data) }
-func (connection *processConn) Write(data []byte) (int, error)   { return connection.input.Write(data) }
-func (connection *processConn) LocalAddr() net.Addr              { return processAddr("mesh-agent") }
-func (connection *processConn) RemoteAddr() net.Addr             { return processAddr("mesh-executor") }
-func (connection *processConn) SetDeadline(time.Time) error      { return nil }
-func (connection *processConn) SetReadDeadline(time.Time) error  { return nil }
-func (connection *processConn) SetWriteDeadline(time.Time) error { return nil }
+func (connection *processConn) Read(data []byte) (int, error)  { return connection.output.Read(data) }
+func (connection *processConn) Write(data []byte) (int, error) { return connection.input.Write(data) }
 func (connection *processConn) Close() error {
 	connection.close.Do(func() {
 		_ = connection.input.Close()
 		_ = connection.output.Close()
-		if connection.command.Process != nil {
-			_ = connection.command.Process.Kill()
-		}
+		_ = connection.command.Process.Kill()
 	})
 	return nil
 }
-
-type processAddr string
-
-func (address processAddr) Network() string { return "stdio" }
-func (address processAddr) String() string  { return string(address) }

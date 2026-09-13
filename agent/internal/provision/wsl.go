@@ -16,6 +16,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"mesh.local/agent/internal/stream"
 )
 
 const (
@@ -71,8 +73,8 @@ func (manager *Manager) run(ctx context.Context, arguments ...string) ([]byte, e
 		return manager.Command(ctx, manager.Program, arguments...)
 	}
 	command := exec.CommandContext(ctx, manager.Program, arguments...)
-	var output limitedOutput
-	output.remaining = maxCommandOutput
+	var output stream.LimitedBuffer
+	output.Remaining = maxCommandOutput
 	command.Stdout = &output
 	command.Stderr = io.Discard
 	if err := command.Run(); err != nil {
@@ -81,27 +83,10 @@ func (manager *Manager) run(ctx context.Context, arguments ...string) ([]byte, e
 		}
 		return nil, errors.New("WSL command failed")
 	}
-	if output.truncated {
+	if output.Truncated {
 		return nil, errors.New("WSL response exceeded limit")
 	}
-	return output.buffer.Bytes(), nil
-}
-
-type limitedOutput struct {
-	buffer    bytes.Buffer
-	remaining int
-	truncated bool
-}
-
-func (output *limitedOutput) Write(data []byte) (int, error) {
-	written := len(data)
-	if len(data) > output.remaining {
-		data = data[:output.remaining]
-		output.truncated = true
-	}
-	output.remaining -= len(data)
-	_, _ = output.buffer.Write(data)
-	return written, nil
+	return output.Buffer.Bytes(), nil
 }
 
 func (manager *Manager) wait(ctx context.Context) error {
