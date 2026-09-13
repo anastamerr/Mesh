@@ -1,0 +1,51 @@
+groups:
+  - name: mesh-production
+    rules:
+      - alert: MeshTargetDown
+        expr: up{job=~"controller|relay|traefik"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Mesh {{ $labels.job }} metrics target is down"
+
+      - alert: MeshPublicEndpointDown
+        expr: probe_success{job="public-probes"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Mesh public probe failed for {{ $labels.instance }}"
+
+      - alert: MeshCertificateExpiresSoon
+        expr: (probe_ssl_earliest_cert_expiry{job="public-probes"} - time()) < 14 * 24 * 60 * 60
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Mesh TLS certificate for {{ $labels.instance }} expires within 14 days"
+
+      - alert: MeshControllerServerErrors
+        expr: sum(increase(mesh_control_http_requests_total{status=~"5.."}[5m])) > 5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Mesh controller is returning repeated server errors"
+
+      - alert: MeshRelayAuthorizationUnavailable
+        expr: increase(mesh_relay_authorization_errors_total[5m]) > 5
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Mesh relay cannot reliably reach its authorization service"
+
+      - alert: MeshRelayRateLimiting
+        expr: increase(mesh_relay_rate_limited_total[5m]) > 20
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Mesh relay is rejecting an unusual number of connection attempts"
+
+      - alert: MeshRelayNearCapacity
+        expr: (mesh_relay_waiting_connections / mesh_relay_waiting_capacity > 0.9) or (mesh_relay_active_streams / mesh_relay_active_capacity > 0.9)
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Mesh relay has remained above 90% of connection capacity"

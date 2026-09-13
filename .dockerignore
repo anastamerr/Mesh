@@ -20,3 +20,12 @@ agent/bin/
 !deploy/control-plane/**
 !deploy/relay/
 !deploy/relay/**
+
+# Keep private and generated files out even inside an allowed source tree.
+**/.env
+**/.env.*
+**/node_modules
+**/dist
+*.log
+deploy/production/generated/
+deploy/production/secrets/

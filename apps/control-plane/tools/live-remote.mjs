@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, open, readFile, readdir, rm, writeFile } from 'node:fs/
 import { createReadStream } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Pool } from 'pg';
@@ -57,6 +58,13 @@ async function run(executable, args, input = '') {
   const process = start(executable, args, input);
   await waitUntil(() => process.finished, 'command completion', 120000);
   return process.done;
+}
+async function freePort() {
+  const server = createServer();
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '0.0.0.0', resolve); });
+  const address = z.object({ port: z.number().int().positive() }).parse(server.address());
+  await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  return address.port;
 }
 function success(result) { assert.equal(result.code, 0, result.stderr); return result; }
 async function api(path, method = 'GET', body, expected = 200, key = operator) {
@@ -118,7 +126,7 @@ try {
   const origin = `https://${address}`;
   configuration.relayOrigin = origin;
   const storageRoot = join(directory, 'storage');
-  const device = start(binary, ['run', '--state-dir', identity, '--root', storageRoot, '--listen', '127.0.0.1:0', '--relay-ca', cert, '--interval', '1s']);
+  let device = start(binary, ['run', '--state-dir', identity, '--root', storageRoot, '--listen', '127.0.0.1:0', '--relay-ca', cert, '--interval', '1s']);
   await waitUntil(() => device.stderr.includes('Storage listening on ') || device.finished, 'storage startup');
   assert.equal(device.finished, false, device.stderr);
   console.info('Agent and HTTPS relay running.');
@@ -203,6 +211,22 @@ try {
   assert.equal((await readdir(join(directory, 'small-copy'))).length, 200);
   for (const file of await readdir(small)) assert.equal(await digest(join(small, file)), await digest(join(directory, 'small-copy', file)));
   report.checks.push('200 small files copied and retrieved through relay with all hashes verified');
+  device.child.kill('SIGTERM'); await device.done;
+  const directPort = await freePort();
+  device = start(binary, ['run', '--state-dir', identity, '--root', storageRoot, '--direct-lan', '--listen', `0.0.0.0:${directPort}`,
+    '--relay-ca', cert, '--interval', '1s']);
+  await waitUntil(() => device.stderr.includes('Storage listening on ') || device.finished, 'direct storage startup');
+  assert.equal(device.finished, false, device.stderr);
+  await waitUntil(async () => {
+    const connection = z.object({ directCandidates: z.array(z.object({ host: z.string(), port: z.number() })) })
+      .parse(await api(`/v1/nodes/${approved.node.id}/connection`));
+    return connection.directCandidates.some(candidate => candidate.port === directPort);
+  }, 'fresh direct candidate');
+  const directDestination = join(directory, 'small-direct-copy');
+  const directResult = success(await managed('get', '--collection', 'Small files', '--destination', directDestination));
+  assert.match(directResult.stderr, /Connected directly/);
+  for (const file of await readdir(small)) assert.equal(await digest(join(small, file)), await digest(join(directDestination, file)));
+  report.checks.push('Fresh LAN candidate is authenticated and selected automatically; 200 direct file hashes match');
   await api(`/v1/nodes/${approved.node.id}/revoke`, 'POST', {});
   await api(`/v1/pairing-challenges/${challenge.id}/approve`, 'POST', { publicKeyFingerprint: listed.publicKeyFingerprint }, 410);
   const denied = await managed('get', '--collection', collection, '--destination', join(directory, 'denied'));

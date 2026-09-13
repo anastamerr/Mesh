@@ -19,11 +19,12 @@ func setupCommand(ctx context.Context, arguments []string, input io.Reader, outp
 	flags.SetOutput(logs)
 	host, _ := os.Hostname()
 	var server, name, stateDirectory, root, bundle, distribution, relayCA, account string
-	var computeEnabled, installService, passwordStdin bool
+	var computeEnabled, installService, passwordStdin, directLAN bool
 	flags.StringVar(&server, "server", "", "Mesh controller HTTPS origin")
 	flags.StringVar(&name, "name", host, "device name shown during pairing")
 	flags.StringVar(&stateDirectory, "state-dir", "", "private identity directory")
 	flags.StringVar(&root, "root", "", "absolute dedicated storage directory")
+	flags.BoolVar(&directLAN, "direct-lan", false, "publish authenticated direct LAN storage access")
 	flags.BoolVar(&computeEnabled, "compute", false, "enable the dedicated WSL compute environment")
 	flags.StringVar(&bundle, "compute-bundle", "", "optional verified WSL rootfs tar to install")
 	flags.StringVar(&distribution, "wsl-distribution", "Mesh", "dedicated WSL distribution")
@@ -98,6 +99,9 @@ func setupCommand(ctx context.Context, arguments []string, input io.Reader, outp
 	if installService {
 		serviceArguments := []string{"install", "--account", account, "--password-stdin",
 			"--state-dir", stateDirectory, "--root", root, "--wsl-distribution", distribution}
+		if directLAN {
+			serviceArguments = append(serviceArguments, "--direct-lan")
+		}
 		if computeEnabled {
 			serviceArguments = append(serviceArguments, "--compute")
 		}
@@ -113,6 +117,9 @@ func setupCommand(ctx context.Context, arguments []string, input io.Reader, outp
 	command := fmt.Sprintf("mesh-agent run --state-dir %q --root %q", stateDirectory, root)
 	if computeEnabled {
 		command += " --compute --wsl-distribution " + fmt.Sprintf("%q", distribution)
+	}
+	if directLAN {
+		command += " --direct-lan"
 	}
 	fmt.Fprintf(output, "Setup complete. Start Mesh with:\n%s\n", command)
 	return nil

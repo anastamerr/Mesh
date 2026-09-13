@@ -18,3 +18,14 @@ func TestComputeRequiresStorageRootAndValidDistribution(t *testing.T) {
 		t.Fatal("valid compute options rejected", err)
 	}
 }
+
+func TestComputeAndDirectLANOptionsCoexist(t *testing.T) {
+	o, err := parseOptions([]string{"run", "--compute", "--direct-lan", "--root", t.TempDir(),
+		"--listen", "192.168.1.20:7332", "--wsl-distribution", "Mesh"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !o.compute || !o.directLAN || !o.storage.pairedTLS || o.wsl != "Mesh" {
+		t.Fatal("combined runner lost compute or paired LAN configuration")
+	}
+}

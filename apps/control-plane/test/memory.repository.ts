@@ -24,7 +24,7 @@ export class MemoryRepository implements NodeRepository, StorageRepository, Pair
     this.tokens.delete(enrollmentHash);
     const { enrollmentToken: _secret, ...fields } = input;
     const node = { ...fields, id: randomUUID(), createdAt: new Date(), lastSeenAt: null,
-      revokedAt: null, inventory: null, publicKeyFingerprint: null, hash, expires, sequence: -1 };
+      revokedAt: null, inventory: null, publicKeyFingerprint: null, directCandidates: [], hash, expires, sequence: -1 };
     this.nodes.set(node.id, node);
     return this.publicNode(node);
   }
@@ -35,6 +35,7 @@ export class MemoryRepository implements NodeRepository, StorageRepository, Pair
     node.sequence = input.sequence;
     node.lastSeenAt = new Date();
     node.inventory = input.inventory;
+    node.directCandidates = input.directCandidates;
     return 'accepted';
   }
   private publicNode(node: NodeRecord & { hash: string; expires: Date; sequence: number }): NodeRecord {
@@ -101,7 +102,7 @@ export class MemoryRepository implements NodeRepository, StorageRepository, Pair
     const node = { id: randomUUID(), name: pairing.name, platform: pairing.platform,
       architecture: pairing.architecture, agentVersion: pairing.agentVersion, createdAt: new Date(), lastSeenAt: null,
       revokedAt: null, inventory: null, publicKeyFingerprint: pairing.publicKeyFingerprint,
-      hash: pairing.nodeCredentialHash, expires: credentialExpiresAt, sequence: -1 };
+      directCandidates: [], hash: pairing.nodeCredentialHash, expires: credentialExpiresAt, sequence: -1 };
     this.nodes.set(node.id, node);
     pairing.nodeId = node.id;
     return { kind: 'approved', node: this.publicNode(node), credentialExpiresAt };
@@ -119,7 +120,9 @@ export class MemoryRepository implements NodeRepository, StorageRepository, Pair
   async getNodeConnection(nodeId: string) {
     const node = this.nodes.get(nodeId);
     if (!node?.publicKeyFingerprint || node.revokedAt || node.expires.getTime() <= Date.now()) return null;
-    return { nodeId, publicKeyFingerprint: node.publicKeyFingerprint };
+    const recent = node.lastSeenAt && Date.now()-node.lastSeenAt.getTime() <= 60_000;
+    return { nodeId, publicKeyFingerprint: node.publicKeyFingerprint,
+      directCandidates: recent ? node.directCandidates : [], candidatesObservedAt: recent ? node.lastSeenAt : null };
   }
   grants = new Map<string, { nodeId: string; permission: StoragePermission; expiresAt: Date }>();
   async createStorageGrant(nodeId: string, hash: string, permission: StoragePermission, expiresAt: Date) {

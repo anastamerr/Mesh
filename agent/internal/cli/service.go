@@ -45,7 +45,7 @@ func serviceCommand(ctx context.Context, arguments []string, input io.Reader, ou
 	flags := flag.NewFlagSet("service install", flag.ContinueOnError)
 	flags.SetOutput(logs)
 	var account, stateDirectory, root, relayOrigin, relayCA, distribution string
-	var passwordStdin, compute bool
+	var passwordStdin, compute, directLAN bool
 	var interval time.Duration
 	flags.StringVar(&account, "account", "", "current Windows account in DOMAIN\\user form")
 	flags.BoolVar(&passwordStdin, "password-stdin", false, "read the Windows account password from stdin")
@@ -53,6 +53,7 @@ func serviceCommand(ctx context.Context, arguments []string, input io.Reader, ou
 	flags.StringVar(&root, "root", "", "absolute dedicated storage directory")
 	flags.StringVar(&relayOrigin, "relay", "", "optional Mesh relay HTTPS origin override")
 	flags.StringVar(&relayCA, "relay-ca", "", "optional absolute private relay CA PEM path")
+	flags.BoolVar(&directLAN, "direct-lan", false, "publish authenticated direct LAN storage access")
 	flags.BoolVar(&compute, "compute", false, "enable WSL container workloads")
 	flags.StringVar(&distribution, "wsl-distribution", "Mesh", "dedicated WSL distribution")
 	flags.DurationVar(&interval, "interval", 15*time.Second, "control interval, between 1s and 30s")
@@ -101,6 +102,9 @@ func serviceCommand(ctx context.Context, arguments []string, input io.Reader, ou
 	}
 	if relayCA != "" {
 		runArguments = append(runArguments, "--relay-ca", relayCA)
+	}
+	if directLAN {
+		runArguments = append(runArguments, "--direct-lan")
 	}
 	if compute {
 		runArguments = append(runArguments, "--compute")

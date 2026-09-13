@@ -23,6 +23,8 @@ The control-plane container applies checksum-pinned migrations under a PostgreSQ
 
 Use `https://<MESH_CONTROL_HOST>` as the host setup controller. The configured relay origin is `https://<MESH_RELAY_HOST>:7443/`. Both public endpoints need inbound TCP firewall rules; old laptops need only outbound HTTPS/TCP and no router forwarding.
 
+Both deployment stacks share the controller and relay Dockerfiles. This stack runs migrations before controller startup; the monitored [production stack](../../docs/production-deployment.md) uses a separate migration job and adds edge limits, automatic relay certificates, and monitoring. Controller metrics remain private in both.
+
 ## Operations
 
 Back up the PostgreSQL volume independently before upgrades. Review migration changes before replacing images. Rotate the operator and relay credentials by replacing their files and recreating the affected containers; the two values must remain different. Relay certificate renewal currently belongs to the deployment administrator and requires recreating the relay container after the files change.

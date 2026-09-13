@@ -10,20 +10,25 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type ServerConfig struct {
-	Authorizer         Authorizer
-	AuthTimeout        time.Duration
-	QueueTimeout       time.Duration
-	IdleTimeout        time.Duration
-	MaxLifetime        time.Duration
-	RevalidateInterval time.Duration
-	MaxWaiting         int
-	MaxWaitingPerNode  int
-	MaxActive          int
-	MaxActivePerNode   int
+	Authorizer                  Authorizer
+	AuthTimeout                 time.Duration
+	QueueTimeout                time.Duration
+	IdleTimeout                 time.Duration
+	MaxLifetime                 time.Duration
+	RevalidateInterval          time.Duration
+	MaxWaiting                  int
+	MaxWaitingPerNode           int
+	MaxActive                   int
+	MaxActivePerNode            int
+	MaxConnectsPerMinute        int
+	MaxConnectsPerNodePerMinute int
+	ConnectBurst                int
+	ConnectBurstPerNode         int
 }
 
 type Server struct {
@@ -36,6 +41,8 @@ type Server struct {
 	connections  map[net.Conn]struct{}
 	closed       bool
 	authSlots    chan struct{}
+	limiter      *connectLimiter
+	metrics      relayMetrics
 }
 
 type waitingDevice struct {
@@ -77,13 +84,33 @@ func NewServer(c ServerConfig) (*Server, error) {
 	if c.MaxActivePerNode <= 0 {
 		c.MaxActivePerNode = 8
 	}
-	return &Server{c: c, waiting: make(map[string][]*waitingDevice), activeByNode: make(map[string]int), connections: make(map[net.Conn]struct{}), authSlots: make(chan struct{}, 64)}, nil
+	if c.MaxConnectsPerMinute <= 0 {
+		c.MaxConnectsPerMinute = 6000
+	}
+	if c.MaxConnectsPerNodePerMinute <= 0 {
+		c.MaxConnectsPerNodePerMinute = 600
+	}
+	if c.ConnectBurst <= 0 {
+		c.ConnectBurst = max(10, c.MaxConnectsPerMinute/10)
+	}
+	if c.ConnectBurstPerNode <= 0 {
+		c.ConnectBurstPerNode = max(4, c.MaxConnectsPerNodePerMinute/10)
+	}
+	limiter := newConnectLimiter(c.MaxConnectsPerMinute, c.ConnectBurst, c.MaxConnectsPerNodePerMinute, c.ConnectBurstPerNode)
+	return &Server{c: c, waiting: make(map[string][]*waitingDevice), activeByNode: make(map[string]int), connections: make(map[net.Conn]struct{}), authSlots: make(chan struct{}, 64), limiter: limiter}, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	role, nodeID, serviceRoute, ok := route(r)
 	if !ok {
 		http.NotFound(w, r)
+		return
+	}
+	s.metrics.requestsTotal.Add(1)
+	if allowed, retryAfter := s.limiter.check(nodeID); !allowed {
+		s.metrics.rateLimitedTotal.Add(1)
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 		return
 	}
 	// CONNECT carries the opaque stream only after the 2xx response. A
@@ -95,6 +122,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	bearer, ok := bearerToken(r.Header.Get("Authorization"))
 	if !ok {
+		s.metrics.unauthorizedTotal.Add(1)
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -102,6 +130,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	select {
 	case s.authSlots <- struct{}{}:
 	default:
+		s.metrics.busyTotal.Add(1)
 		http.Error(w, "relay busy", http.StatusServiceUnavailable)
 		return
 	}
@@ -114,6 +143,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusServiceUnavailable
 		if errors.Is(err, ErrDenied) {
 			status = http.StatusUnauthorized
+			s.metrics.unauthorizedTotal.Add(1)
+		} else {
+			s.metrics.authorizationErrorsTotal.Add(1)
 		}
 		http.Error(w, http.StatusText(status), status)
 		return
@@ -128,6 +160,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.track(conn) {
+		s.metrics.busyTotal.Add(1)
 		_ = conn.Close()
 		s.untrack(conn)
 		return
@@ -156,6 +189,7 @@ func (s *Server) enqueueDevice(conn net.Conn, req AuthRequest, lease Lease) {
 	s.mu.Lock()
 	if s.closed || s.waitingCount >= s.c.MaxWaiting || len(s.waiting[key]) >= s.c.MaxWaitingPerNode {
 		s.mu.Unlock()
+		s.metrics.busyTotal.Add(1)
 		writeStatus(conn, http.StatusServiceUnavailable)
 		_ = conn.Close()
 		s.untrack(conn)
@@ -263,6 +297,7 @@ func (s *Server) connectConsumer(conn net.Conn, writer *bufio.Writer, req AuthRe
 		s.untrack(stale.conn)
 	}
 	if device == nil {
+		s.metrics.busyTotal.Add(1)
 		writeStatusWriter(writer, http.StatusServiceUnavailable)
 		_ = conn.Close()
 		s.untrack(conn)
@@ -277,6 +312,7 @@ func (s *Server) connectConsumer(conn net.Conn, writer *bufio.Writer, req AuthRe
 		s.release(req.NodeID)
 		return
 	}
+	s.metrics.streamsStartedTotal.Add(1)
 	s.bridge(req.NodeID, device.conn, conn, device.req, device.lease, req, lease)
 }
 
@@ -308,8 +344,8 @@ func (s *Server) bridge(nodeID string, a, b net.Conn, ar AuthRequest, al Lease, 
 	copyDone := make(chan struct{}, 2)
 	activityA := &activityConn{Conn: a, idle: idle}
 	activityB := &activityConn{Conn: b, idle: idle}
-	go copyHalf(activityB, activityA, copyDone)
-	go copyHalf(activityA, activityB, copyDone)
+	go copyHalfCounted(activityB, activityA, copyDone, &s.metrics.deviceToConsumerBytes)
+	go copyHalfCounted(activityA, activityB, copyDone, &s.metrics.consumerToDeviceBytes)
 	<-copyDone
 	_ = a.Close()
 	_ = b.Close()
@@ -318,6 +354,7 @@ func (s *Server) bridge(nodeID string, a, b net.Conn, ar AuthRequest, al Lease, 
 	s.untrack(a)
 	s.untrack(b)
 	s.release(nodeID)
+	s.metrics.streamsCompletedTotal.Add(1)
 }
 
 func (s *Server) track(conn net.Conn) bool {
@@ -445,8 +482,15 @@ func (s *idleState) touch() {
 }
 
 func copyHalf(dst, src net.Conn, done chan<- struct{}) {
+	copyHalfCounted(dst, src, done, nil)
+}
+
+func copyHalfCounted(dst, src net.Conn, done chan<- struct{}, bytes *atomic.Uint64) {
 	buf := make([]byte, 32*1024)
-	_, _ = io.CopyBuffer(dst, src, buf)
+	n, _ := io.CopyBuffer(dst, src, buf)
+	if n > 0 && bytes != nil {
+		bytes.Add(uint64(n))
+	}
 	if c, ok := dst.(interface{ CloseWrite() error }); ok {
 		_ = c.CloseWrite()
 	}

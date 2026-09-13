@@ -22,20 +22,32 @@ type HTTPAuthorizer struct {
 const maxAuthorizationResponse = 16 * 1024
 
 func NewHTTPAuthorizer(endpoint, serviceBearer string, tlsConfig *tls.Config) (*HTTPAuthorizer, error) {
+	return NewHTTPAuthorizerWithOptions(endpoint, serviceBearer, HTTPAuthorizerOptions{TLSConfig: tlsConfig})
+}
+
+type HTTPAuthorizerOptions struct {
+	TLSConfig        *tls.Config
+	AllowPrivateHTTP bool
+}
+
+// NewHTTPAuthorizerWithOptions permits plaintext authorization only when the
+// caller explicitly asserts that the endpoint is on a private, trusted
+// transport such as the isolated Docker backend network.
+func NewHTTPAuthorizerWithOptions(endpoint, serviceBearer string, options HTTPAuthorizerOptions) (*HTTPAuthorizer, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, errors.New("authorization endpoint must be an HTTP origin and path")
 	}
 	loopback := u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback()
-	if u.Scheme != "https" && !(u.Scheme == "http" && loopback) {
+	if u.Scheme != "https" && !(u.Scheme == "http" && (loopback || options.AllowPrivateHTTP)) {
 		return nil, errors.New("authorization endpoint must use HTTPS except on loopback")
 	}
 	if serviceBearer == "" || strings.ContainsAny(serviceBearer, "\r\n") {
 		return nil, errors.New("authorization service credential is required")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if tlsConfig != nil {
-		transport.TLSClientConfig = tlsConfig.Clone()
+	if options.TLSConfig != nil {
+		transport.TLSClientConfig = options.TLSConfig.Clone()
 	}
 	return &HTTPAuthorizer{endpoint: u.String(), serviceBearer: serviceBearer, client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }

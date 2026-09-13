@@ -5,11 +5,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"sync"
 	"time"
 
+	"mesh.local/agent/internal/connectivity"
 	"mesh.local/agent/internal/control"
 	"mesh.local/agent/internal/relay"
 	"mesh.local/agent/internal/storage"
@@ -37,8 +40,13 @@ func relayTrust(file string) (*tls.Config, error) {
 	return &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool}, nil
 }
 
-func configureRemoteClient(ctx context.Context, client *storage.Client, controller *control.Client, operator, node, origin, ca string, grant func(context.Context) (string, error)) error {
-	fingerprint, err := controller.DeviceFingerprint(ctx, operator, node)
+func configureMeshClient(ctx context.Context, client *storage.Client, controller *control.Client, operator, node, origin, ca string,
+	relayOnly bool, grant func(context.Context) (string, error), logs io.Writer) error {
+	connection, err := controller.DeviceConnection(ctx, operator, node)
+	if err != nil {
+		return err
+	}
+	authenticate, err := storage.DeviceAuthenticator(connection.PublicKeyFingerprint)
 	if err != nil {
 		return err
 	}
@@ -46,19 +54,53 @@ func configureRemoteClient(ctx context.Context, client *storage.Client, controll
 	if err != nil {
 		return err
 	}
-	return client.UseDeviceTransport(fingerprint, func(ctx context.Context, _, _ string) (net.Conn, error) {
-		// Obtain a fresh lease for each connection. HTTP keep-alive amortizes this
-		// operation without sharing mutable grant state with transport goroutines.
-		token, err := grant(ctx)
-		if err != nil {
-			return nil, err
+	authenticated := func(dial func(context.Context) (net.Conn, error)) func(context.Context) (net.Conn, error) {
+		return func(ctx context.Context) (net.Conn, error) {
+			raw, err := dial(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return authenticate(ctx, raw)
 		}
-		ticket, _, err := controller.RelayTicket(ctx, node, "consumer", token)
-		if err != nil {
-			return nil, err
+	}
+	direct := make([]connectivity.Route, 0, len(connection.DirectCandidates))
+	if !relayOnly {
+		for _, candidate := range connection.DirectCandidates {
+			address := net.JoinHostPort(candidate.Host, fmt.Sprint(candidate.Port))
+			direct = append(direct, connectivity.Route{Dial: authenticated(func(ctx context.Context) (net.Conn, error) {
+				return (&net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, "tcp", address)
+			})})
 		}
-		return relay.Dial(ctx, origin, node, relay.RoleConsumer, ticket, trust)
-	})
+	}
+	var relayRoute *connectivity.Route
+	if origin != "" {
+		route := connectivity.Route{Dial: authenticated(func(ctx context.Context) (net.Conn, error) {
+			// Obtain a fresh lease for each connection. HTTP keep-alive amortizes this
+			// operation without sharing mutable grant state with transport goroutines.
+			token, err := grant(ctx)
+			if err != nil {
+				return nil, err
+			}
+			ticket, _, err := controller.RelayTicket(ctx, node, "consumer", token)
+			if err != nil {
+				return nil, err
+			}
+			return relay.Dial(ctx, origin, node, relay.RoleConsumer, ticket, trust)
+		})}
+		relayRoute = &route
+	}
+	if len(direct) == 0 && relayRoute == nil {
+		return connectivity.ErrNoRoute
+	}
+	reporter := &connectivity.PathReporter{Log: func(path connectivity.Path) {
+		if path == connectivity.PathDirect {
+			fmt.Fprintln(logs, "Connected directly to Mesh device on the local network.")
+		} else {
+			fmt.Fprintln(logs, "Connected through Mesh relay with device-to-device encryption.")
+		}
+	}}
+	manager := &connectivity.Manager{Direct: direct, Relay: relayRoute, DirectHeadStart: 250 * time.Millisecond, OnSelected: reporter.Selected}
+	return client.UseAuthenticatedDeviceTransport(manager.Dial)
 }
 
 func deviceRelayTickets(controller *control.Client, node, credential string) func(context.Context) (string, error) {

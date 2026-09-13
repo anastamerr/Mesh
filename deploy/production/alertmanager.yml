@@ -1,0 +1,11 @@
+route:
+  receiver: local-ui
+  group_by: [alertname, instance]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+# Alerts are retained and visible through the SSH-only UI. Add an email,
+# webhook, PagerDuty, or another receiver here for off-host notifications.
+receivers:
+  - name: local-ui

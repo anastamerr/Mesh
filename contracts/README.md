@@ -33,11 +33,14 @@ Heartbeat body:
     "cpuLogicalCores": 8,
     "memoryTotalBytes": 17179869184,
     "memoryAvailableBytes": 8589934592
-  }
+  },
+  "directCandidates": [
+    { "transport": "tcp", "host": "192.168.1.20", "port": 7332 }
+  ]
 }
 ```
 
-Send every 15 seconds as an initial client policy. Increase and persist the sequence for every new observation. Nonincreasing sequences return 409 without changing presence; bad/expired/revoked credentials return 401. Unknown request fields and invalid inventory return 400. Revocation of a missing UUID returns 404.
+Send every 15 seconds as an initial client policy. Increase and persist the sequence for every new observation. `directCandidates` is optional and defaults to an empty observation; it accepts at most eight unique private IPv4 TCP endpoints on ports 1024–65535. Nonincreasing sequences return 409 without changing presence or candidates; bad/expired/revoked credentials return 401. Unknown request fields and invalid inventory return 400. Revocation of a missing UUID returns 404.
 
 `unknown`: no heartbeat yet. `online`: last accepted receipt within 60 seconds. `unreachable`: older receipt. `revoked`: operator disabled identity. Inventory is self-reported and retains its last-seen timestamp; it is not an attestation. Disk/GPU inventory and execution environments are deferred to explicit contracts.
 
@@ -60,7 +63,7 @@ Details and consistency limits: [ADR 0005](../docs/decisions/0005-collection-wor
 Agents advertise `Mesh-Transfer-Features: batch-v1`. Negotiated clients use `GET`/`PUT /v1/collections/{id}/batch?indices=...` for strictly ordered small-file indices, bounded to 128 files, 256 KiB per file and 4 MiB total. Upload acknowledgements contain all committed `offsets`. Each request is scoped and authorized, and file checksums remain mandatory. Clients fall back to individual file endpoints when the feature is absent. See [ADR 0006](../docs/decisions/0006-transfer-efficiency.md) for durability and compatibility semantics.
 # Pairing and remote transport
 
-See [paired remote storage](../docs/remote-access.md) for deployment, CLI flow, authorization boundaries and recovery guarantees. Pairing uses `POST /v1/pairing-challenges`, operator listing/approval, and proof-authenticated polling. `GET /v1/network` publishes the relay origin; operator `GET /v1/nodes/:id/connection` returns the paired key fingerprint. Active paired devices renew through `POST /v1/nodes/:id/renew`. `POST /v1/nodes/:id/relay-tickets` exchanges a device credential or storage grant for a role-bound routing ticket; only the separate relay service credential can call `POST /v1/relay/authorize`. Storage authorization remains inside the end-to-end TLS tunnel.
+See [paired remote storage](../docs/remote-access.md) for deployment, CLI flow, authorization boundaries and recovery guarantees. Pairing uses `POST /v1/pairing-challenges`, operator listing/approval, and proof-authenticated polling. `GET /v1/network` publishes the relay origin; operator `GET /v1/nodes/:id/connection` returns the paired key fingerprint plus fresh direct candidates. Active paired devices renew through `POST /v1/nodes/:id/renew`. `POST /v1/nodes/:id/relay-tickets` exchanges a device credential or storage grant for a role-bound routing ticket; only the separate relay service credential can call `POST /v1/relay/authorize`. Storage authorization remains inside the end-to-end TLS tunnel.
 
 ## Compute workloads
 
@@ -100,3 +103,5 @@ Workload creation is rejected until the assigned node reports a ready `docker-li
 Observations contain `revision`, `state`, nullable `exitCode`, nullable `failureCode`, and nullable `outputCollectionId`. A successful job is reported only after `/mesh/data` has been exported, checksum-verified, and confirmed as a collection on the assigned node; its output collection ID is then required. `exporting` is a retryable state between container exit and publication. Terminal success/failure requires an exit code, and only failure has one of the bounded failure codes. Stale or regressing observations return 409 without changing the stored observation.
 
 Application relay routes are `app-{workload UUID}` and never share a waiting queue or authorization subject with storage or another application. Tickets are valid for at most ten minutes and authorize successfully only while the referenced application's current revision remains desired and observed running on its assigned active node. The relay carries opaque bytes; the operator verifies the paired device public key inside an end-to-end TLS stream before application traffic is sent. See [ADR 0009](../docs/decisions/0009-authenticated-application-routing.md).
+
+Direct storage path selection and relay fallback follow [ADR 0013](../docs/decisions/0013-connectivity-foundation.md). Application tickets remain scoped to their workload route regardless of the storage path.

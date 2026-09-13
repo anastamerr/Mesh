@@ -11,6 +11,8 @@
     "test:remote": "npm run test:remote --workspace @mesh/control-plane",
     "test:live": "npm run test:live --workspace @mesh/control-plane",
     "test:windows": "npm run test:windows --workspace @mesh/control-plane",
+    "test:windows-connectivity": "npm run test:windows-connectivity --workspace @mesh/control-plane",
+    "test:public": "node deploy/production/validate-public.mjs",
     "mesh": "node --env-file=apps/control-plane/.env scripts/mesh-local.mjs",
     "lint": "oxlint . --deny-warnings",
     "agent:enroll": "node --env-file=apps/control-plane/.env scripts/enroll-local-agent.mjs",

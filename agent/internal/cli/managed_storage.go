@@ -18,7 +18,7 @@ import (
 type managedOptions struct {
 	command, controller, server, node, source, collection, destination, name string
 	relay, relayCA                                                           string
-	operatorStdin, json                                                      bool
+	operatorStdin, json, explicitServer, relayOnly                           bool
 }
 
 func managedStorage(ctx context.Context, args []string, input io.Reader, output, logs io.Writer) error {
@@ -33,6 +33,7 @@ func managedStorage(ctx context.Context, args []string, input io.Reader, output,
 		flags.StringVar(&o.server, "server", "http://127.0.0.1:7332", "storage origin")
 		flags.StringVar(&o.relay, "relay", "", "Mesh relay HTTPS origin for the paired device")
 		flags.StringVar(&o.relayCA, "relay-ca", "", "optional private CA PEM for a self-hosted relay")
+		flags.BoolVar(&o.relayOnly, "relay-only", false, "disable direct candidates and require the Mesh relay")
 	}
 	if o.command == "copy" {
 		flags.StringVar(&o.source, "source", "", "folder to copy")
@@ -61,14 +62,18 @@ func managedStorage(ctx context.Context, args []string, input io.Reader, output,
 	if err != nil {
 		return err
 	}
-	if o.command != "catalog" && o.relay == "" {
-		explicitServer := false
+	if o.command != "catalog" {
 		flags.Visit(func(f *flag.Flag) {
 			if f.Name == "server" {
-				explicitServer = true
+				o.explicitServer = true
 			}
 		})
-		if !explicitServer {
+		// Preserve the existing explicit relay override when both legacy flags
+		// are supplied; --server remains the direct-address escape hatch alone.
+		if o.relay != "" {
+			o.explicitServer = false
+		}
+		if o.relay == "" && !o.explicitServer {
 			o.relay, err = controller.RelayOrigin(ctx)
 			if err != nil {
 				return err
@@ -76,6 +81,12 @@ func managedStorage(ctx context.Context, args []string, input io.Reader, output,
 		}
 	}
 	if o.command != "catalog" {
+		if o.explicitServer && o.relayOnly {
+			return errors.New("choose an explicit storage server or relay-only mode, not both")
+		}
+		if o.relayOnly && o.relay == "" {
+			return errors.New("relay-only mode requires a configured or explicit Mesh relay")
+		}
 		if _, err := control.New(o.server); err != nil {
 			return err
 		}
@@ -221,7 +232,7 @@ func managedClient(ctx context.Context, controller *control.Client, key, node st
 		return nil, err
 	}
 	server := o.server
-	if o.relay != "" {
+	if !o.explicitServer {
 		server = "https://mesh-device.invalid"
 	}
 	client, err := storage.NewClient(server, token)
@@ -230,11 +241,10 @@ func managedClient(ctx context.Context, controller *control.Client, key, node st
 	}
 	client.RenewCredential = renew
 	client.Progress = progressPrinter(logs)
-	if o.relay != "" {
-		if err := configureRemoteClient(ctx, client, controller, key, node, o.relay, o.relayCA, renew); err != nil {
+	if !o.explicitServer {
+		if err := configureMeshClient(ctx, client, controller, key, node, o.relay, o.relayCA, o.relayOnly, renew, logs); err != nil {
 			return nil, err
 		}
-		fmt.Fprintln(logs, "Connecting through Mesh relay with device-to-device encryption...")
 	}
 	return client, nil
 }

@@ -23,6 +23,8 @@ type storageOptions struct {
 	after       string
 	stateDir    string
 	enrolled    bool
+	pairedTLS   bool
+	certificate *tls.Certificate
 	remote      *remoteStorage
 }
 
@@ -114,7 +116,7 @@ func validateServing(o storageOptions) error {
 	if !o.enrolled && !net.ParseIP(host).IsLoopback() {
 		return errors.New("shared storage keys are limited to loopback development; use --enrolled for remote serving")
 	}
-	if o.cert == "" && !net.ParseIP(host).IsLoopback() {
+	if o.cert == "" && !o.pairedTLS && !net.ParseIP(host).IsLoopback() {
 		return errors.New("non-loopback listeners require TLS; use a loopback IP for local development")
 	}
 	return nil

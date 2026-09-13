@@ -25,8 +25,8 @@ test('container secret files are bounded and cannot ambiguously override environ
   writeFileSync(database, 'postgresql://mesh:secret@postgres/mesh\n', { mode: 0o600 });
   writeFileSync(admin, 'a'.repeat(43), { mode: 0o600 });
   const environment: NodeJS.ProcessEnv = { DATABASE_URL_FILE: database, MESH_ADMIN_KEY_FILE: admin };
-  loadSecretFiles(environment);
   assert.equal(readConfig(environment).adminKey, 'a'.repeat(43));
+  loadSecretFiles(environment);
   assert.equal(environment.DATABASE_URL, 'postgresql://mesh:secret@postgres/mesh');
   assert.throws(() => loadSecretFiles({ ...environment, DATABASE_URL_FILE: database }), /DATABASE_URL/);
   writeFileSync(admin, `valid\n${'b'.repeat(43)}`, { mode: 0o600 });
@@ -41,4 +41,22 @@ test('database migrations do not require operator credentials; invalid config do
     assert.ok(!error.message.includes(secret));
     return true;
   });
+});
+
+test('production credentials can be loaded from bounded secret files', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'mesh-config-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const database = join(directory, 'database-url');
+  const admin = join(directory, 'admin-key');
+  const relay = join(directory, 'relay-key');
+  writeFileSync(database, 'postgresql://mesh:secret@postgres/mesh\n', { mode: 0o600 });
+  writeFileSync(admin, `${'a'.repeat(43)}\n`, { mode: 0o600 });
+  writeFileSync(relay, `${'b'.repeat(43)}\n`, { mode: 0o600 });
+  const environment = { DATABASE_URL_FILE: database, MESH_ADMIN_KEY_FILE: admin, MESH_RELAY_KEY_FILE: relay,
+    MESH_RELAY_ORIGIN: 'https://relay.example/' };
+  const config = readConfig(environment);
+  assert.equal(config.databaseUrl, 'postgresql://mesh:secret@postgres/mesh');
+  assert.equal(config.adminKey, 'a'.repeat(43));
+  assert.equal(config.relayKey, 'b'.repeat(43));
+  assert.throws(() => readConfig({ ...environment, MESH_ADMIN_KEY: 'c'.repeat(43) }), /MESH_ADMIN_KEY_FILE/);
 });

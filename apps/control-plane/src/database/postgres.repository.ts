@@ -11,7 +11,7 @@ import type { PairingApproval, PairingChallenge, PairingRepository, PairingStatu
 
 const publicColumns = `id, name, platform, architecture, agent_version AS "agentVersion",
   created_at AS "createdAt", last_seen_at AS "lastSeenAt", revoked_at AS "revokedAt", inventory,
-  public_key_fingerprint AS "publicKeyFingerprint"`;
+  public_key_fingerprint AS "publicKeyFingerprint", direct_candidates AS "directCandidates"`;
 
 export class PostgresNodeRepository implements NodeRepository, StorageRepository, PairingRepository {
   constructor(private readonly pool: Pool) {}
@@ -47,10 +47,10 @@ export class PostgresNodeRepository implements NodeRepository, StorageRepository
     // update. The normal path needs one round trip, without weakening sequence
     // or revocation enforcement. Rejected requests never refresh presence.
     const updated = await this.pool.query(`UPDATE nodes SET last_seen_at = clock_timestamp(),
-      heartbeat_sequence = $3, inventory = $4::jsonb
+      heartbeat_sequence = $3, inventory = $4::jsonb, direct_candidates = $5::jsonb
       WHERE id = $1 AND credential_hash = $2 AND revoked_at IS NULL
         AND credential_expires_at > now() AND heartbeat_sequence < $3 RETURNING id`,
-      [nodeId, credentialHash, input.sequence, JSON.stringify(input.inventory)]);
+      [nodeId, credentialHash, input.sequence, JSON.stringify(input.inventory), JSON.stringify(input.directCandidates)]);
     if (updated.rowCount) return 'accepted';
     const authorized = await this.pool.query(`SELECT id FROM nodes WHERE id = $1 AND credential_hash = $2
       AND revoked_at IS NULL AND credential_expires_at > now()`, [nodeId, credentialHash]);
@@ -216,9 +216,13 @@ export class PostgresNodeRepository implements NodeRepository, StorageRepository
     return result.rows[0] ? { subject, expiresAt: result.rows[0].expiresAt } : null;
   }
 
-  async getNodeConnection(nodeId: string): Promise<{ nodeId: string; publicKeyFingerprint: string } | null> {
-    const result = await this.pool.query<{ nodeId: string; publicKeyFingerprint: string }>(`SELECT id AS "nodeId",
-      public_key_fingerprint AS "publicKeyFingerprint" FROM nodes WHERE id=$1
+  async getNodeConnection(nodeId: string) {
+    const result = await this.pool.query<{ nodeId: string; publicKeyFingerprint: string;
+      directCandidates: import('../nodes/contracts').DirectCandidate[]; candidatesObservedAt: Date | null }>(`SELECT id AS "nodeId",
+      public_key_fingerprint AS "publicKeyFingerprint",
+      CASE WHEN last_seen_at > now()-interval '60 seconds' THEN direct_candidates ELSE '[]'::jsonb END AS "directCandidates",
+      CASE WHEN last_seen_at > now()-interval '60 seconds' THEN last_seen_at ELSE NULL END AS "candidatesObservedAt"
+      FROM nodes WHERE id=$1
       AND public_key_fingerprint IS NOT NULL AND revoked_at IS NULL AND credential_expires_at > now()`, [nodeId]);
     return result.rows[0] ?? null;
   }
@@ -277,6 +281,7 @@ export class PostgresNodeRepository implements NodeRepository, StorageRepository
       await this.pool.query('SELECT token_hash, route, workload_id FROM relay_tickets LIMIT 0');
       await this.pool.query('SELECT id, revision, observed_state FROM workloads LIMIT 0');
       await this.pool.query('SELECT id, status, runtime_version FROM execution_environments LIMIT 0');
+      await this.pool.query('SELECT direct_candidates FROM nodes LIMIT 0');
       return true;
     } catch { return false; }
   }

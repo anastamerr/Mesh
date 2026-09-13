@@ -1,0 +1,42 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: controller
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["controller:3000"]
+
+  - job_name: relay
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["relay:9090"]
+
+  - job_name: traefik
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["traefik:8082"]
+
+  - job_name: public-probes
+    metrics_path: /probe
+    file_sd_configs:
+      - files: [/etc/prometheus/targets.json]
+        refresh_interval: 1m
+    relabel_configs:
+      - source_labels: [module]
+        target_label: __param_module
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

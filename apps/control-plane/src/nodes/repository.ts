@@ -1,4 +1,4 @@
-import { Enrollment, Heartbeat } from './contracts';
+import { DirectCandidate, Enrollment, Heartbeat } from './contracts';
 
 export const NODE_REPOSITORY = Symbol('NODE_REPOSITORY');
 export interface NodeRecord {
@@ -12,6 +12,14 @@ export interface NodeRecord {
   revokedAt: Date | null;
   inventory: Heartbeat['inventory'] | null;
   publicKeyFingerprint: string | null;
+  directCandidates: DirectCandidate[];
+}
+
+export interface NodeConnection {
+  nodeId: string;
+  publicKeyFingerprint: string;
+  directCandidates: DirectCandidate[];
+  candidatesObservedAt: Date | null;
 }
 
 export interface NodeRepository {
@@ -22,6 +30,6 @@ export interface NodeRepository {
   list(): Promise<NodeRecord[]>;
   revoke(nodeId: string): Promise<boolean>;
   renew(nodeId: string, credentialHash: string): Promise<Date | null>;
-  getNodeConnection(nodeId: string): Promise<{ nodeId: string; publicKeyFingerprint: string } | null>;
+  getNodeConnection(nodeId: string): Promise<NodeConnection | null>;
   ready(): Promise<boolean>;
 }

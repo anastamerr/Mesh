@@ -21,6 +21,12 @@ type Inventory struct {
 	MemoryAvailableBytes uint64 `json:"memoryAvailableBytes"`
 }
 
+type DirectCandidate struct {
+	Transport string `json:"transport"`
+	Host      string `json:"host"`
+	Port      int    `json:"port"`
+}
+
 type Enrollment struct {
 	Token        string `json:"enrollmentToken"`
 	Name         string `json:"name"`
@@ -78,10 +84,15 @@ func (c *Client) Enroll(ctx context.Context, input Enrollment) (Identity, error)
 }
 
 func (c *Client) Heartbeat(ctx context.Context, id, credential string, sequence uint64, inventory Inventory) error {
+	return c.HeartbeatWithCandidates(ctx, id, credential, sequence, inventory, nil)
+}
+
+func (c *Client) HeartbeatWithCandidates(ctx context.Context, id, credential string, sequence uint64, inventory Inventory, candidates []DirectCandidate) error {
 	return c.postAccepted(ctx, "/v1/nodes/"+url.PathEscape(id)+"/heartbeat", credential, struct {
-		Sequence  uint64    `json:"sequence"`
-		Inventory Inventory `json:"inventory"`
-	}{sequence, inventory})
+		Sequence         uint64            `json:"sequence"`
+		Inventory        Inventory         `json:"inventory"`
+		DirectCandidates []DirectCandidate `json:"directCandidates,omitempty"`
+	}{sequence, inventory, candidates})
 }
 
 func (c *Client) postAccepted(ctx context.Context, path, credential string, body interface{}) error {

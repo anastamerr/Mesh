@@ -35,10 +35,15 @@ test('PostgreSQL atomically consumes enrollment and serializes heartbeats/revoca
     const index = results.findIndex(Boolean);
     const node = results[index]!;
     const hash = index === 0 ? 'credential-a' : 'credential-b';
-    const heartbeat = { sequence: 0, inventory: { cpuLogicalCores: 8, memoryTotalBytes: 16, memoryAvailableBytes: 8 } };
+    const heartbeat = { sequence: 0, inventory: { cpuLogicalCores: 8, memoryTotalBytes: 16, memoryAvailableBytes: 8 },
+      directCandidates: [{ transport: 'tcp' as const, host: '192.168.1.20', port: 7332 }] };
     const beats = await Promise.all([repository.heartbeat(node.id, hash, heartbeat), repository.heartbeat(node.id, hash, heartbeat)]);
     assert.deepEqual(beats.sort(), ['accepted', 'stale']);
     const before = await pool.query('SELECT last_seen_at, inventory FROM nodes WHERE id = $1', [node.id]);
+    await pool.query('UPDATE nodes SET public_key_fingerprint=$2 WHERE id=$1', [node.id, 'a'.repeat(64)]);
+    const connection = await repository.getNodeConnection(node.id);
+    assert.deepEqual(connection?.directCandidates, heartbeat.directCandidates);
+    assert.ok(connection?.candidatesObservedAt);
     assert.equal(await repository.heartbeat(node.id, hash, heartbeat), 'stale');
     const after = await pool.query('SELECT last_seen_at, inventory FROM nodes WHERE id = $1', [node.id]);
     assert.deepEqual(after.rows, before.rows, 'stale observations must not refresh presence or inventory');

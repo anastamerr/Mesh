@@ -1,0 +1,58 @@
+{
+  "date": "2026-09-08",
+  "result": "PASS",
+  "localProcessLifecycle": {
+    "environment": "darwin/arm64; separate controller, agent and HTTPS relay processes",
+    "relayUpload": {
+      "bytes": 134217728,
+      "elapsedMs": 657.1421250000003
+    },
+    "resumedRelayDownload": {
+      "bytes": 134217728,
+      "savedBytes": 8388608,
+      "elapsedMs": 528.3218749999996
+    },
+    "checks": [
+      "Relay upload and retrieval hashes matched",
+      "Killed download resumed after relay restart",
+      "Wrong paired key was rejected before output creation",
+      "Corrupt checkpoint was discarded and repaired",
+      "200 small files matched through the relay",
+      "Fresh LAN candidate was authenticated and selected automatically",
+      "200 small files matched through the direct path",
+      "Revoked device could not obtain fresh access"
+    ]
+  },
+  "physicalWindowsDirect": {
+    "environment": "macOS client/controller to native Windows 11 IdeaPad over private Wi-Fi",
+    "upload": {
+      "bytes": 8388608,
+      "elapsedMs": 11552.420666000002
+    },
+    "download": {
+      "bytes": 8388608,
+      "elapsedMs": 6627.912417
+    },
+    "checks": [
+      "Windows agent published fresh private-LAN candidates",
+      "Mac selected the paired TLS-authenticated direct path without a relay",
+      "Upload, native Windows publication, retrieval and SHA-256 verification completed",
+      "A temporary Private-profile firewall rule was required by the non-installed test executable"
+    ]
+  },
+  "physicalWindowsRegression": {
+    "environment": "macOS client/controller to native Windows 11 IdeaPad through separate SSH control and data tunnels",
+    "checks": [
+      "Enrollment and DPAPI identity reload passed",
+      "8 MiB and 100-small-file round trips matched native and retrieved hashes",
+      "Interrupted 16 MiB upload retained 4 MiB and resumed to a verified result",
+      "Revoked node could not obtain a read grant or heartbeat"
+    ]
+  },
+  "limitations": [
+    "These are single-run experience checks, not statistical performance benchmarks.",
+    "The local relay lifecycle is not a WAN test.",
+    "The physical Windows direct and regression runs used the same Wi-Fi network; separate-network WAN validation remains pending.",
+    "Wi-Fi, disk, hashing and protocol costs were not independently isolated."
+  ]
+}

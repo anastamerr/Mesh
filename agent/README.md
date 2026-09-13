@@ -134,6 +134,10 @@ The key-based demo above is restricted to loopback. For another machine, use enr
 
 Enrolled serving validates each request with the controller and honors grant expiry and node revocation on subsequent requests. Controller outages fail closed. Requests already authorized may finish. The local shared-key mode remains independent of controller authorization.
 
+## Automatic LAN storage selection
+
+Add `--direct-lan` to `run`, `setup`, or `service install` to publish private IPv4 candidates using the paired device certificate. The Windows setup wrapper accepts `-DirectLAN`. Paired managed clients discover the address through the controller and prefer an authenticated direct connection, with automatic relay fallback. Use `--relay-only` on `storage copy|get` to force the relay. This requires prior pairing; it does not discover unenrolled laptops. Application routes remain workload-scoped relay connections. See [ADR 0013](../docs/decisions/0013-connectivity-foundation.md).
+
 ## Managed transfers
 
 From the repository root, `npm run mesh -- copy|catalog|get ...` handles collection IDs and scoped grants automatically. See [ADR 0005](../docs/decisions/0005-collection-workflow.md) for commands, progress, resumption and catalogue semantics. The underlying `mesh-agent storage copy|catalog|get` commands accept an operator key only over stdin with `--operator-stdin`; the development helper supplies it without placing it in arguments or child environment.

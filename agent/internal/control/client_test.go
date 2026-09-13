@@ -2,7 +2,9 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -11,6 +13,55 @@ import (
 	"sync/atomic"
 	"testing"
 )
+
+func TestHeartbeatPublishesDirectCandidatesWithoutChangingLegacyShape(t *testing.T) {
+	var bodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		bodies = append(bodies, body)
+		_, _ = io.WriteString(w, `{"accepted":true}`)
+	}))
+	defer server.Close()
+	client, _ := New(server.URL)
+	inventory := Inventory{CPULogicalCores: 4, MemoryTotalBytes: 8, MemoryAvailableBytes: 4}
+	if err := client.Heartbeat(context.Background(), "node", "credential", 0, inventory); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := bodies[0]["directCandidates"]; exists {
+		t.Fatal("legacy heartbeat unexpectedly published candidate field")
+	}
+	if err := client.HeartbeatWithCandidates(context.Background(), "node", "credential", 1, inventory,
+		[]DirectCandidate{{Transport: "tcp", Host: "192.168.1.20", Port: 7332}}); err != nil {
+		t.Fatal(err)
+	}
+	if candidates, ok := bodies[1]["directCandidates"].([]any); !ok || len(candidates) != 1 {
+		t.Fatalf("missing candidates: %#v", bodies[1])
+	}
+}
+
+func TestDeviceConnectionValidatesControllerResponse(t *testing.T) {
+	id := "12345678-1234-4234-8234-123456789abc"
+	fingerprint := strings.Repeat("a", 64)
+	for _, body := range []string{
+		fmt.Sprintf(`{"nodeId":%q,"publicKeyFingerprint":%q,"directCandidates":[{"transport":"tcp","host":"192.168.1.20","port":7332}],"candidatesObservedAt":"2026-09-08T00:00:00Z"}`, id, fingerprint),
+		fmt.Sprintf(`{"nodeId":%q,"publicKeyFingerprint":%q,"directCandidates":[{"transport":"udp","host":"192.168.1.20","port":7332}]}`, id, fingerprint),
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, body) }))
+		client, _ := New(server.URL)
+		connection, err := client.DeviceConnection(context.Background(), "operator", id)
+		server.Close()
+		if strings.Contains(body, `"tcp"`) {
+			if err != nil || len(connection.DirectCandidates) != 1 {
+				t.Fatal(connection, err)
+			}
+		} else if !errors.Is(err, ErrProtocol) {
+			t.Fatal("invalid candidate accepted", err)
+		}
+	}
+}
 
 func TestOriginPolicy(t *testing.T) {
 	for _, origin := range []string{"http://example.com", "https://user:secret@example.com", "https://example.com/api", "https://example.com?token=x", "https://example.com?", "https://example.com/%2f", "file:///tmp/x"} {

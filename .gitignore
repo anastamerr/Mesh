@@ -7,5 +7,7 @@ coverage/
 *.log
 .DS_Store
 agent/bin/
+deploy/production/generated/
+deploy/production/secrets/
 /tools/*
 !/tools/oxlint/

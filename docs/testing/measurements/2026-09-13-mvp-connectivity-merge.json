@@ -1,0 +1,86 @@
+{
+  "date": "2026-09-13",
+  "baseCommit": "1ab87f55483961695a85799bf4cfb599ff45237c",
+  "scope": "Merged working tree; macOS local-process verification, not Windows or public WAN evidence",
+  "remote": {
+    "environment": "darwin/arm64; separate processes, HTTPS relay over loopback; not a WAN test",
+    "result": "PASS",
+    "checks": [
+      "Paired device lease renewal is authenticated and repeatable",
+      "Pairing survives requester death and repeated approval creates one identity; mismatched fingerprint denied",
+      "Relay service credential cannot administer devices",
+      "Relay tickets cannot renew identity, mint tickets, or change role; storage grants cannot authenticate to relay",
+      "128 MiB relay upload/retrieval hashes match; killed downloader resumes durable bytes after relay restart",
+      "Wrong paired TLS key is rejected before creating output",
+      "Corrupt saved prefix is discarded and downloaded again with matching final hash",
+      "Existing user destination remains untouched",
+      "200 small files copied and retrieved through relay with all hashes verified",
+      "Fresh LAN candidate is authenticated and selected automatically; 200 direct file hashes match",
+      "Revoked device cannot obtain fresh remote access"
+    ],
+    "measurements": [
+      {
+        "operation": "relay upload",
+        "bytes": 134217728,
+        "elapsedMs": 682.788834
+      },
+      {
+        "operation": "resumed relay download",
+        "savedBytes": 8388608,
+        "bytes": 134217728,
+        "elapsedMs": 538.176958
+      }
+    ]
+  },
+  "storage": {
+    "environment": "darwin/arm64, loopback, local disk",
+    "result": "PASS",
+    "checks": [
+      "Named catalogue shows confirmed copies",
+      "Actionable missing-name and existing-destination errors",
+      "Real server kill: pending catalogue, resumed bytes, verified 256 MiB retrieval"
+    ],
+    "measurements": [
+      {
+        "fixture": "large",
+        "workflow": "managed-copy",
+        "elapsedMs": 647.682625,
+        "firstFeedbackMs": 44.90133300000002,
+        "bytes": 134217728
+      },
+      {
+        "fixture": "large",
+        "workflow": "managed-get",
+        "elapsedMs": 506.7103330000001,
+        "firstFeedbackMs": 48.24166700000012,
+        "bytes": 134217728
+      },
+      {
+        "fixture": "large",
+        "workflow": "repeat-copy",
+        "elapsedMs": 102.79645800000003,
+        "bytes": 134217728
+      },
+      {
+        "fixture": "small-files",
+        "workflow": "managed-copy",
+        "elapsedMs": 1879.773584,
+        "firstFeedbackMs": 43.38245900000015,
+        "bytes": 2048000
+      },
+      {
+        "fixture": "small-files",
+        "workflow": "managed-get",
+        "elapsedMs": 1813.7134170000004,
+        "firstFeedbackMs": 55.65050000000019,
+        "bytes": 2048000
+      },
+      {
+        "fixture": "small-files",
+        "workflow": "repeat-copy",
+        "elapsedMs": 67.11774999999943,
+        "bytes": 2048000
+      }
+    ]
+  }
+}

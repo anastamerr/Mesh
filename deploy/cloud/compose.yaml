@@ -19,6 +19,7 @@ services:
     networks: [backend]
 
   control-plane:
+    command: ["sh", "-c", "node apps/control-plane/dist/database/migrate.js && exec node apps/control-plane/dist/main.js"]
     build:
       context: ../..
       dockerfile: deploy/control-plane/Dockerfile
@@ -30,6 +31,7 @@ services:
       MESH_RELAY_ORIGIN: https://${MESH_RELAY_HOST}:7443/
       HOST: 0.0.0.0
       PORT: 3000
+      TRUST_PROXY_HOPS: 1
     secrets: [database_url, admin_key, relay_key]
     depends_on:
       postgres:

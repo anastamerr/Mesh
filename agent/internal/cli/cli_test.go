@@ -50,6 +50,7 @@ func TestInvalidCommandsDoNotCreateState(t *testing.T) {
 		{"enroll", "--state-dir", dir, "--token-stdin", "--server", "http://remote.example"},
 		{"run", "--state-dir", dir, "--interval", "0s"},
 		{"run", "--state-dir", dir, "--root", "files", "--listen", "0.0.0.0:7332"},
+		{"run", "--state-dir", dir, "--root", "files", "--direct-lan", "--listen", "127.0.0.1:7332"},
 		{"run", "--state-dir", dir, "--listen", "127.0.0.1:7332"},
 		{"run", "--state-dir", dir, "--root", "files", "--tls-cert", "missing"},
 		{"service", "install", "--state-dir", dir},

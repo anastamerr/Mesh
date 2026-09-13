@@ -1,0 +1,245 @@
+name: mesh-production
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mesh
+      POSTGRES_USER: mesh
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mesh -d mesh"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: deploy/control-plane/Dockerfile
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets:
+      - database_url
+    networks: [backend]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["node", "apps/control-plane/dist/database/migrate.js"]
+    restart: "no"
+
+  controller:
+    build:
+      context: ../..
+      dockerfile: deploy/control-plane/Dockerfile
+    restart: unless-stopped
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    tmpfs:
+      - /tmp:mode=1777
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      TRUST_PROXY_HOPS: "1"
+      DATABASE_URL_FILE: /run/secrets/database_url
+      MESH_ADMIN_KEY_FILE: /run/secrets/admin_key
+      MESH_RELAY_KEY_FILE: /run/secrets/relay_key
+      MESH_RELAY_ORIGIN: https://${MESH_RELAY_HOST:?Set MESH_RELAY_HOST}/
+      MESH_API_RATE_LIMIT_PER_MINUTE: ${MESH_API_RATE_LIMIT_PER_MINUTE:-600}
+      MESH_PAIRING_RATE_LIMIT_PER_MINUTE: ${MESH_PAIRING_RATE_LIMIT_PER_MINUTE:-10}
+    secrets:
+      - database_url
+      - admin_key
+      - relay_key
+    networks:
+      backend:
+      proxy:
+        aliases: [controller-proxy, controller-auth]
+      monitoring:
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  relay:
+    build:
+      context: ../..
+      dockerfile: deploy/relay/Dockerfile
+    restart: unless-stopped
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    command:
+      - --listen=0.0.0.0:7443
+      - --insecure-http
+      - --auth-url=http://controller-auth:3000/v1/relay/authorize
+      - --allow-private-auth-http
+      - --auth-service-token-file=/run/secrets/relay_key
+      - --metrics-listen=0.0.0.0:9090
+      - --max-waiting=${MESH_RELAY_MAX_WAITING:-1024}
+      - --max-active=${MESH_RELAY_MAX_ACTIVE:-512}
+      - --max-connects-per-minute=${MESH_RELAY_CONNECTS_PER_MINUTE:-6000}
+      - --max-connects-per-node-per-minute=${MESH_RELAY_CONNECTS_PER_NODE_PER_MINUTE:-600}
+    secrets:
+      - relay_key
+    networks:
+      proxy:
+        aliases: [relay-proxy]
+      monitoring:
+    depends_on:
+      controller:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+
+  traefik:
+    image: traefik:v3.7.7
+    restart: unless-stopped
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    tmpfs:
+      - /tmp:mode=1777
+    command:
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.metrics.address=:8082
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?Set ACME_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --metrics.prometheus=true
+      - --metrics.prometheus.entrypoint=metrics
+      - --metrics.prometheus.addrouterslabels=true
+      - --ping=true
+      - --ping.entrypoint=metrics
+      - --accesslog=true
+      - --accesslog.format=json
+      - --log.level=INFO
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./generated/traefik-dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - letsencrypt:/letsencrypt
+    networks: [proxy, monitoring]
+    depends_on:
+      controller:
+        condition: service_healthy
+      relay:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  blackbox:
+    image: quay.io/prometheus/blackbox-exporter:v0.28.0
+    restart: unless-stopped
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    volumes:
+      - ./blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks: [monitoring]
+
+  alertmanager:
+    image: prom/alertmanager:v0.33.1
+    restart: unless-stopped
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    tmpfs:
+      - /tmp:mode=1777
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    networks: [monitoring]
+
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    restart: unless-stopped
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    tmpfs:
+      - /tmp:mode=1777
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./generated/prometheus-targets.json:/etc/prometheus/targets.json:ro
+      - prometheus-data:/prometheus
+    networks: [monitoring]
+    depends_on:
+      controller:
+        condition: service_healthy
+      relay:
+        condition: service_healthy
+      traefik:
+        condition: service_healthy
+      blackbox:
+        condition: service_started
+      alertmanager:
+        condition: service_started
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  database_url:
+    file: ./secrets/database_url
+  admin_key:
+    file: ./secrets/admin_key
+  relay_key:
+    file: ./secrets/relay_key
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  alertmanager-data:
+  letsencrypt:
+
+networks:
+  proxy:
+    internal: false
+  monitoring:
+    internal: false
+  backend:
+    internal: true

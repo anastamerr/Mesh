@@ -11,6 +11,7 @@ param(
     [string] $Name = $env:COMPUTERNAME,
     [string] $StateDirectory = (Join-Path $env:LOCALAPPDATA 'Mesh\agent'),
     [switch] $EnableCompute,
+    [switch] $DirectLAN,
     [switch] $InstallService
 )
 
@@ -44,6 +45,9 @@ $arguments = @(
     'setup', '--server', $Server, '--name', $Name,
     '--state-dir', $StateDirectory, '--root', $StorageRoot
 )
+if ($DirectLAN) {
+    $arguments += '--direct-lan'
+}
 if ($EnableCompute) {
     if (-not (Test-Path -LiteralPath $bundle -PathType Leaf) -or
         -not (Test-Path -LiteralPath "$bundle.sha256" -PathType Leaf)) {

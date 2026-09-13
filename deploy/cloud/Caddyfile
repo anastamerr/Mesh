@@ -1,4 +1,6 @@
 {$MESH_CONTROL_HOST} {
     encode zstd gzip
+    @metrics path /metrics /metrics/*
+    respond @metrics 404
     reverse_proxy control-plane:3000
 }

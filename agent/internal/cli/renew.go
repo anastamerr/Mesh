@@ -10,13 +10,22 @@ import (
 )
 
 type pairedHeartbeat struct {
-	client *control.Client
-	saved  *state.State
-	store  *state.Store
+	client     *control.Client
+	saved      *state.State
+	store      *state.Store
+	candidates func() ([]control.DirectCandidate, error)
 }
 
 func (p *pairedHeartbeat) Heartbeat(ctx context.Context, id, credential string, sequence uint64, inventory control.Inventory) error {
-	if err := p.client.Heartbeat(ctx, id, credential, sequence, inventory); err != nil {
+	var candidates []control.DirectCandidate
+	var err error
+	if p.candidates != nil {
+		candidates, err = p.candidates()
+		if err != nil {
+			return err
+		}
+	}
+	if err := p.client.HeartbeatWithCandidates(ctx, id, credential, sequence, inventory, candidates); err != nil {
 		return err
 	}
 	if time.Until(p.saved.ExpiresAt) < 7*24*time.Hour {

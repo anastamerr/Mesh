@@ -5,6 +5,7 @@ import { createApp } from '../src/app';
 import { hashToken } from '../src/auth/tokens';
 import { MemoryRepository } from './memory.repository';
 import { randomUUID } from 'node:crypto';
+import type { Config } from '../src/config';
 
 const key = 'test_admin_key_012345678901234567890123456789';
 const admin = { authorization: `Bearer ${key}` };
@@ -40,13 +41,27 @@ test('domain repositories route independently and close each lifecycle owner onc
   }
 });
 
-async function setup(t: TestContext) {
+async function setup(t: TestContext, overrides: Partial<Config> = {}) {
   const repository = new MemoryRepository();
-  const app = await createApp({ adminKey: key, databaseUrl: 'postgresql://unused', host: '127.0.0.1', port: 3000 }, { nodes: repository, workloads: repository });
+  const app = await createApp({ adminKey: key, databaseUrl: 'postgresql://unused', host: '127.0.0.1', port: 3000, ...overrides }, { nodes: repository, workloads: repository });
   t.after(() => app.close());
   await app.getHttpAdapter().getInstance().ready();
   return { repository, request: app.getHttpAdapter().getInstance().inject.bind(app.getHttpAdapter().getInstance()) };
 }
+
+test('public API requests are rate limited and metrics use bounded route labels', async t => {
+  const { request } = await setup(t, { apiRateLimitPerMinute: 2, pairingRateLimitPerMinute: 1 });
+  assert.equal((await request({ method: 'POST', url: '/v1/pairing-challenges', payload: {} })).statusCode, 400);
+  const limited = await request({ method: 'POST', url: '/v1/pairing-challenges', payload: {} });
+  assert.equal(limited.statusCode, 429);
+  assert.ok(Number(limited.headers['retry-after']) >= 1);
+  assert.equal((await request({ method: 'GET', url: '/health/live' })).statusCode, 200);
+  const metrics = await request({ method: 'GET', url: '/metrics' });
+  assert.equal(metrics.statusCode, 200);
+  assert.match(metrics.body, /mesh_control_http_requests_total/);
+  assert.match(metrics.body, /route="\/v1\/pairing-challenges"/);
+  assert.ok(!metrics.body.includes('pairingRequestId'));
+});
 
 test('operator routes reject missing and incorrect credentials', async t => {
   const { request } = await setup(t);
@@ -253,6 +268,41 @@ test('stale observations become unreachable and readiness differs from liveness'
   repository.available = false;
   assert.equal((await request({ method: 'GET', url: '/health/live' })).statusCode, 200);
   assert.equal((await request({ method: 'GET', url: '/health/ready' })).statusCode, 503);
+});
+
+test('paired nodes publish bounded fresh LAN candidates without weakening identity checks', async t => {
+  const { request, repository } = await setup(t);
+  const issued = await request({ method: 'POST', url: '/v1/enrollment-tokens', headers: admin });
+  const enrolledResponse = await request({ method: 'POST', url: '/v1/nodes/enroll', payload: {
+    enrollmentToken: issued.json().enrollmentToken, name: 'Direct node', platform: 'windows', architecture: 'amd64', agentVersion: 'dev',
+  } });
+  const enrolled = z.object({ node: z.object({ id: z.uuid() }), nodeCredential: z.string() }).parse(enrolledResponse.json());
+  const id = enrolled.node.id;
+  const credential = enrolled.nodeCredential;
+  repository.nodes.get(id)!.publicKeyFingerprint = 'a'.repeat(64);
+  const heartbeat = { sequence: 0, inventory, directCandidates: [
+    { transport: 'tcp', host: '192.168.1.20', port: 7332 },
+    { transport: 'tcp', host: '10.0.0.8', port: 8443 },
+  ] };
+  assert.equal((await request({ method: 'POST', url: `/v1/nodes/${id}/heartbeat`,
+    headers: { authorization: `Bearer ${credential}` }, payload: heartbeat })).statusCode, 200);
+  const connection = await request({ method: 'GET', url: `/v1/nodes/${id}/connection`, headers: admin });
+  assert.equal(connection.statusCode, 200);
+  assert.deepEqual(connection.json().directCandidates, heartbeat.directCandidates);
+  assert.ok(connection.json().candidatesObservedAt);
+  for (const directCandidates of [
+    [{ transport: 'tcp', host: '127.0.0.1', port: 7332 }],
+    [{ transport: 'tcp', host: '8.8.8.8', port: 7332 }],
+    [{ transport: 'tcp', host: '192.168.1.20', port: 80 }],
+    Array.from({ length: 9 }, (_, index) => ({ transport: 'tcp', host: `10.0.0.${index+1}`, port: 7332 })),
+  ]) {
+    assert.equal((await request({ method: 'POST', url: `/v1/nodes/${id}/heartbeat`,
+      headers: { authorization: `Bearer ${credential}` }, payload: { ...heartbeat, sequence: heartbeat.sequence+1, directCandidates } })).statusCode, 400);
+  }
+  repository.nodes.get(id)!.lastSeenAt = new Date(Date.now()-61_000);
+  const stale = await request({ method: 'GET', url: `/v1/nodes/${id}/connection`, headers: admin });
+  assert.deepEqual(stale.json().directCandidates, []);
+  assert.equal(stale.json().candidatesObservedAt, null);
 });
 
 test('storage grants isolate nodes, collections, access and expiration', async t => {

@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"mesh.local/agent/internal/connectivity"
 )
 
 type options struct {
@@ -22,6 +24,7 @@ type options struct {
 	relayCA    string
 	compute    bool
 	wsl        string
+	directLAN  bool
 }
 
 var distributionName = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
@@ -53,6 +56,7 @@ func parseOptions(args []string, logs io.Writer) (options, error) {
 		flags.StringVar(&o.relayCA, "relay-ca", "", "optional private CA PEM for a self-hosted relay")
 		flags.BoolVar(&o.compute, "compute", false, "reconcile typed container workloads through the Linux executor")
 		flags.StringVar(&o.wsl, "wsl-distribution", "Mesh", "dedicated WSL distribution containing mesh-executor")
+		flags.BoolVar(&o.directLAN, "direct-lan", false, "publish authenticated direct access on private LAN addresses")
 		flags.DurationVar(&o.interval, "interval", 15*time.Second, "heartbeat interval, between 1s and 30s")
 		o.storage.enrolled = true
 		flags.StringVar(&o.storage.root, "root", "", "also serve this dedicated storage directory")
@@ -77,8 +81,32 @@ func parseOptions(args []string, logs io.Writer) (options, error) {
 		if o.compute && o.storage.root == "" {
 			return o, errors.New("compute requires --root so collection mounts remain inside approved storage")
 		}
+		listenExplicit := false
+		flags.Visit(func(f *flag.Flag) {
+			if f.Name == "listen" {
+				listenExplicit = true
+			}
+		})
+		if o.directLAN && !listenExplicit {
+			o.storage.listen = "0.0.0.0:7332"
+		}
+		o.storage.pairedTLS = o.directLAN
+		if o.directLAN {
+			if candidates, err := connectivity.DiscoverLAN(o.storage.listen); err != nil || len(candidates) == 0 {
+				if err != nil {
+					return o, err
+				}
+				return o, errors.New("direct LAN access found no active private IPv4 interface")
+			}
+		}
 		if o.relay != "" && o.storage.root == "" {
 			return o, errors.New("relay access requires --root")
+		}
+		if o.directLAN && o.storage.root == "" {
+			return o, errors.New("direct LAN access requires --root")
+		}
+		if o.directLAN && o.storage.cert != "" {
+			return o, errors.New("direct LAN access uses the paired device certificate; omit manual TLS files")
 		}
 		if o.storage.root != "" {
 			if err := validateServing(o.storage); err != nil {

@@ -39,7 +39,7 @@ func TestSetupPairsInitializesStorageAndResumes(t *testing.T) {
 	defer server.Close()
 	stateDirectory, root := t.TempDir(), t.TempDir()
 	arguments := []string{"setup", "--server", server.URL, "--name", "Spare laptop",
-		"--state-dir", stateDirectory, "--root", root}
+		"--state-dir", stateDirectory, "--root", root, "--direct-lan"}
 	var output bytes.Buffer
 	if err := Execute(context.Background(), arguments, strings.NewReader(""), &output, io.Discard); err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestSetupPairsInitializesStorageAndResumes(t *testing.T) {
 	if err := Execute(context.Background(), arguments, strings.NewReader(""), &output, io.Discard); err != nil {
 		t.Fatal("resumable setup failed", err)
 	}
-	if starts != 1 || !strings.Contains(output.String(), "Setup complete") {
+	if starts != 1 || !strings.Contains(output.String(), "Setup complete") || !strings.Contains(output.String(), "--direct-lan") {
 		t.Fatalf("setup repeated pairing or omitted completion: starts=%d output=%q", starts, output.String())
 	}
 }

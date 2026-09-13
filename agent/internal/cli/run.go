@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"mesh.local/agent/internal/compute"
+	"mesh.local/agent/internal/connectivity"
 	"mesh.local/agent/internal/control"
 	"mesh.local/agent/internal/inventory"
 	"mesh.local/agent/internal/runner"
@@ -20,7 +21,11 @@ import (
 func runNode(ctx context.Context, saved *state.State, store *state.Store, client *control.Client, o options, logs io.Writer) (err error) {
 	var sender runner.Sender = client
 	if saved.PublicKeyFingerprint != "" {
-		sender = &pairedHeartbeat{client: client, saved: saved, store: store}
+		paired := &pairedHeartbeat{client: client, saved: saved, store: store}
+		if o.directLAN {
+			paired.candidates = func() ([]control.DirectCandidate, error) { return connectivity.DiscoverLAN(o.storage.listen) }
+		}
+		sender = paired
 	}
 	if o.storage.root == "" && !o.compute {
 		return runner.Loop(ctx, saved, store, sender, inventory.Read, o.interval, logs)
@@ -42,26 +47,43 @@ func runNode(ctx context.Context, saved *state.State, store *state.Store, client
 	}
 	var deviceCertificate tls.Certificate
 	var relayTLS *tls.Config
-	if o.relay != "" {
-		if _, err := control.New(o.relay); err != nil {
+	if o.directLAN && saved.PublicKeyFingerprint == "" {
+		return errors.New("direct LAN access requires a paired device identity")
+	}
+	if o.directLAN {
+		candidates, err := connectivity.DiscoverLAN(o.storage.listen)
+		if err != nil {
 			return err
+		}
+		if len(candidates) == 0 {
+			return errors.New("direct LAN access found no active private IPv4 interface")
+		}
+	}
+	if o.relay != "" || o.directLAN {
+		if o.relay != "" {
+			if _, err := control.New(o.relay); err != nil {
+				return err
+			}
 		}
 		certificate, fingerprint, err := store.DeviceCertificate()
 		if err != nil {
 			return err
 		}
 		if saved.PublicKeyFingerprint == "" || saved.PublicKeyFingerprint != fingerprint {
-			return errors.New("relay access requires a matching paired device identity")
+			return errors.New("remote access requires a matching paired device identity")
 		}
 		if o.storage.cert != "" {
-			return errors.New("relay serving uses the paired device certificate; omit manual TLS files")
+			return errors.New("remote serving uses the paired device certificate; omit manual TLS files")
 		}
-		trust, err := relayTrust(o.relayCA)
-		if err != nil {
-			return err
+		o.storage.certificate = &certificate
+		if o.relay != "" {
+			trust, err := relayTrust(o.relayCA)
+			if err != nil {
+				return err
+			}
+			deviceCertificate, relayTLS = certificate, trust
+			o.storage.remote = &remoteStorage{origin: o.relay, nodeID: saved.NodeID, ticket: deviceRelayTickets(client, saved.NodeID, saved.Credential), certificate: certificate, trust: trust}
 		}
-		deviceCertificate, relayTLS = certificate, trust
-		o.storage.remote = &remoteStorage{origin: o.relay, nodeID: saved.NodeID, ticket: deviceRelayTickets(client, saved.NodeID, saved.Credential), certificate: certificate, trust: trust}
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

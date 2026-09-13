@@ -37,14 +37,17 @@ func serveStorageWithStore(ctx context.Context, o storageOptions, store *storage
 	if o.remote != nil {
 		certificate = o.remote.certificate
 	}
+	if o.certificate != nil {
+		certificate = *o.certificate
+	}
 	listener, err := net.Listen("tcp", o.listen)
 	if err != nil {
 		return err
 	}
 	address := listener.Addr().String()
 	server := &http.Server{Handler: storage.AuthorizedHandler(store, authorize, report), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 2 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 8192}
-	if o.cert != "" || o.remote != nil {
-		listener = tls.NewListener(listener, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}})
+	if o.cert != "" || o.remote != nil || o.certificate != nil {
+		listener = tls.NewListener(listener, &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{certificate}})
 	}
 	if o.remote != nil {
 		relayDone := make(chan struct{})
@@ -53,7 +56,17 @@ func serveStorageWithStore(ctx context.Context, o storageOptions, store *storage
 			_ = relay.ServeDevice(ctx, relay.DeviceConfig{RelayOrigin: o.remote.origin, NodeID: o.remote.nodeID, Workers: 4, TLSConfig: o.remote.trust,
 				Credential: o.remote.ticket,
 				DialTarget: func(ctx context.Context) (net.Conn, error) {
-					return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", address)
+					host, port, splitErr := net.SplitHostPort(address)
+					if splitErr != nil {
+						return nil, splitErr
+					}
+					if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+						host = "127.0.0.1"
+						if ip.To4() == nil {
+							host = "::1"
+						}
+					}
+					return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(host, port))
 				},
 				OnError: func(error) { fmt.Fprintln(logs, "Relay unavailable; reconnecting automatically.") },
 			})

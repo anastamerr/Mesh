@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"time"
 )
@@ -36,6 +37,13 @@ type PairingStatus struct {
 	Status              string    `json:"status"`
 	Node                Node      `json:"node"`
 	CredentialExpiresAt time.Time `json:"credentialExpiresAt"`
+}
+
+type DeviceConnection struct {
+	NodeID               string            `json:"nodeId"`
+	PublicKeyFingerprint string            `json:"publicKeyFingerprint"`
+	DirectCandidates     []DirectCandidate `json:"directCandidates"`
+	CandidatesObservedAt *time.Time        `json:"candidatesObservedAt"`
 }
 
 func (c *Client) StartPairing(ctx context.Context, input PairingRequest) (PairingChallenge, error) {
@@ -83,20 +91,31 @@ func (c *Client) ApprovePairing(ctx context.Context, operator, id, fingerprint s
 }
 
 func (c *Client) DeviceFingerprint(ctx context.Context, operator, id string) (string, error) {
+	connection, err := c.DeviceConnection(ctx, operator, id)
+	return connection.PublicKeyFingerprint, err
+}
+
+func (c *Client) DeviceConnection(ctx context.Context, operator, id string) (DeviceConnection, error) {
+	var connection DeviceConnection
 	if !uuid.MatchString(id) {
-		return "", ErrProtocol
-	}
-	var connection struct {
-		NodeID               string `json:"nodeId"`
-		PublicKeyFingerprint string `json:"publicKeyFingerprint"`
+		return connection, ErrProtocol
 	}
 	if err := c.request(ctx, http.MethodGet, "/v1/nodes/"+id+"/connection", operator, nil, &connection); err != nil {
-		return "", err
+		return connection, err
 	}
 	if connection.NodeID != id || !collectionID.MatchString(connection.PublicKeyFingerprint) {
-		return "", errors.New("device has no active pairing; pair it before using remote access")
+		return connection, errors.New("device has no active pairing; pair it before using remote access")
 	}
-	return connection.PublicKeyFingerprint, nil
+	if len(connection.DirectCandidates) > 8 {
+		return connection, ErrProtocol
+	}
+	for _, candidate := range connection.DirectCandidates {
+		ip := net.ParseIP(candidate.Host)
+		if candidate.Transport != "tcp" || ip == nil || ip.To4() == nil || (!ip.IsPrivate() && !ip.IsLoopback()) || candidate.Port < 1024 || candidate.Port > 65535 {
+			return connection, ErrProtocol
+		}
+	}
+	return connection, nil
 }
 
 func (c *Client) RelayOrigin(ctx context.Context) (string, error) {

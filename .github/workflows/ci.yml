@@ -47,6 +47,17 @@ jobs:
       - run: npm run db:migrate
       - run: npm test
       - run: npm run build
+      - name: Validate production deployment
+        env:
+          MESH_API_HOST: api.mesh.invalid
+          MESH_RELAY_HOST: relay.mesh.invalid
+          ACME_EMAIL: ci@mesh.invalid
+        run: |
+          node deploy/production/bootstrap.mjs
+          docker compose -f deploy/production/compose.yaml config --quiet
+          docker compose -f deploy/production/compose.yaml build controller relay
+          docker run --rm --entrypoint /bin/promtool -v "$PWD/deploy/production:/etc/mesh:ro" prom/prometheus:v3.12.0 check rules /etc/mesh/alerts.yml
+          docker run --rm --entrypoint /bin/amtool -v "$PWD/deploy/production:/etc/mesh:ro" prom/alertmanager:v0.33.1 check-config /etc/mesh/alertmanager.yml
       - run: npm run test:remote
       - name: Validate cloud deployment
         working-directory: deploy/cloud

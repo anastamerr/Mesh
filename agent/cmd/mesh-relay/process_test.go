@@ -188,6 +188,86 @@ func TestRelayProcessCarriesOpaqueStream(t *testing.T) {
 	}
 }
 
+func TestRelayProcessSupportsPrivateProxyModeAndMetrics(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	auth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "denied", http.StatusUnauthorized)
+	}))
+	defer auth.Close()
+	dir := t.TempDir()
+	serviceFile := filepath.Join(dir, "service-token")
+	if err := os.WriteFile(serviceFile, []byte("relay-service\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	relayAddress, metricsAddress := reserveAddress(t), reserveAddress(t)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(executable, "-test.run=^TestRelayProcessHelper$", "--",
+		"--listen", relayAddress, "--insecure-http", "--auth-url", auth.URL,
+		"--allow-private-auth-http", "--auth-service-token-file", serviceFile, "--metrics-listen", metricsAddress)
+	cmd.Env = append(os.Environ(), "MESH_RELAY_TEST_HELPER=1")
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	ready := make(chan bool, 1)
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		seenRelay, seenMetrics := false, false
+		for scanner.Scan() {
+			seenRelay = seenRelay || scanner.Text() == "Relay listening on "+relayAddress
+			seenMetrics = seenMetrics || scanner.Text() == "Relay metrics listening on "+metricsAddress
+			if seenRelay && seenMetrics {
+				ready <- true
+				return
+			}
+		}
+		ready <- false
+	}()
+	select {
+	case ok := <-ready:
+		if !ok {
+			t.Fatal("private proxy relay exited before ready")
+		}
+	case <-ctx.Done():
+		t.Fatal("private proxy relay did not become ready")
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodConnect, "http://"+relayAddress+"/v1/relay/nodes/node-1/consumer", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("plaintext proxy request status = %d", response.StatusCode)
+	}
+	for _, path := range []string{"/health/ready", "/metrics"} {
+		response, err = http.Get("http://" + metricsAddress + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, readErr := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		if readErr != nil || response.StatusCode != http.StatusOK {
+			t.Fatalf("metrics endpoint %s failed: status=%d err=%v", path, response.StatusCode, readErr)
+		}
+		if path == "/metrics" && !strings.Contains(string(body), "mesh_relay_connect_requests_total 1") {
+			t.Fatalf("relay request was not reflected in metrics: %s", body)
+		}
+	}
+}
+
 func reserveAddress(t *testing.T) string {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
