@@ -13,11 +13,11 @@ import (
 type staticRelayAuthorizer struct{}
 
 func (staticRelayAuthorizer) Authorize(_ context.Context, req AuthRequest) (Lease, error) {
-	return Lease{Subject: string(req.Role) + ":" + req.NodeID, ExpiresAt: time.Now().Add(time.Hour)}, nil
+	return Lease{Subject: routeSubject(req.Role, req.NodeID, req.Route), ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 
 func (staticRelayAuthorizer) Revalidate(_ context.Context, req AuthRequest, _ Lease) (Lease, error) {
-	return Lease{Subject: string(req.Role) + ":" + req.NodeID, ExpiresAt: time.Now().Add(time.Hour)}, nil
+	return Lease{Subject: routeSubject(req.Role, req.NodeID, req.Route), ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 
 func TestIdleTimeoutTracksEitherDirection(t *testing.T) {

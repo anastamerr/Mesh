@@ -18,7 +18,14 @@ import (
 // Dial establishes one opaque stream through a relay. Both roles initiate an
 // outbound connection, so neither peer needs an inbound NAT or firewall rule.
 func Dial(ctx context.Context, relayOrigin, nodeID string, role Role, bearer string, tlsConfig *tls.Config) (net.Conn, error) {
-	if !validRole(role) || !validNodeID(nodeID) || bearer == "" || strings.ContainsAny(bearer, "\r\n") {
+	return DialRoute(ctx, relayOrigin, nodeID, RouteStorage, role, bearer, tlsConfig)
+}
+
+// DialRoute connects one role to an isolated service route on a node. Storage
+// retains its original URL for protocol compatibility.
+func DialRoute(ctx context.Context, relayOrigin, nodeID, route string, role Role, bearer string,
+	tlsConfig *tls.Config) (net.Conn, error) {
+	if !validRole(role) || !validNodeID(nodeID) || !validRoute(route) || bearer == "" || strings.ContainsAny(bearer, "\r\n") {
 		return nil, errors.New("invalid relay connection parameters")
 	}
 	u, err := parseOrigin(relayOrigin)
@@ -65,7 +72,11 @@ func Dial(ctx context.Context, relayOrigin, nodeID string, role Role, bearer str
 		}
 		conn = tlsConn
 	}
-	requestURL := &url.URL{Scheme: u.Scheme, Host: u.Host, Path: "/v1/relay/nodes/" + nodeID + "/" + string(role)}
+	path := "/v1/relay/nodes/" + nodeID + "/" + string(role)
+	if route != RouteStorage {
+		path = "/v1/relay/nodes/" + nodeID + "/" + route + "/" + string(role)
+	}
+	requestURL := &url.URL{Scheme: u.Scheme, Host: u.Host, Path: path}
 	req := &http.Request{Method: http.MethodConnect, URL: requestURL, Host: u.Host, Header: make(http.Header)}
 	req.Header.Set("Authorization", "Bearer "+bearer)
 	req.Header.Set("User-Agent", "mesh-relay/1")

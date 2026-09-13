@@ -1,6 +1,6 @@
 # ADR 0004: Controller-authorized storage transfers
 
-Status: implemented; direct agent connections, no remote gateway yet.
+Status: implemented, including controller-authorized direct and opaque-relay transfers.
 
 ## Scope
 
@@ -24,7 +24,7 @@ If the controller cannot validate a request, the agent returns 503 without perfo
 
 The legacy `--key-file` serving mode is limited to literal loopback listeners, even with TLS. It remains a development convenience and does not consult controller revocation. The CLI rejects mixing enrolled serving and a local shared key. Non-loopback serving requires enrolled mode plus a TLS certificate and key. Clients validate certificates normally.
 
-The same private `--key-file` option on upload/list/download accepts a scoped grant token. Clients never need the operator key or the server's node credential. Windows directory/key ACL provisioning, service hosting and runtime validation remain pending.
+The same private `--key-file` option on upload/list/download accepts a scoped grant token. Clients never need the operator key or the server's node credential. Windows service hosting is implemented under the enrolled DPAPI user; automatic storage-directory ACL provisioning and reboot/sleep validation remain pending.
 
 ## Controller HTTP contract
 
@@ -72,4 +72,4 @@ Use existing private parent directories for grant files. Keep them outside the r
 
 Tests exercise real PostgreSQL, the compiled enrolled agent, operator helper, multi-chunk upload and verified download, scope denial, controller stop/restart and revocation. Further tests cover grant/node expiry, issuance versus revocation concurrency, rejection on every storage route, and malformed authorization responses.
 
-The controller currently owns transfer authorization, not a catalogue of collection manifests or transfer progress. Next: central collection metadata and gateway routing, then actual Windows service/ACL/reboot tests. Accounts, operator-key rotation, disk quotas, grant renewal UX and active-stream cancellation remain separate work.
+The controller now owns transfer authorization and confirmed catalogue metadata, while durable byte-level progress remains agent-local. The outbound relay provides authenticated cross-network routing. Automatic Windows storage ACL provisioning, operator-key rotation, disk quotas, active-stream cancellation, and reboot/sleep testing remain separate work; multi-user accounts are outside the initial single-owner scope.

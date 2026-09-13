@@ -81,7 +81,7 @@ func NewServer(c ServerConfig) (*Server, error) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	role, nodeID, ok := route(r)
+	role, nodeID, serviceRoute, ok := route(r)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -106,7 +106,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	authCtx, cancel := context.WithTimeout(r.Context(), s.c.AuthTimeout)
-	authRequest := AuthRequest{Role: role, NodeID: nodeID, Bearer: bearer}
+	authRequest := AuthRequest{Role: role, NodeID: nodeID, Route: serviceRoute, Bearer: bearer}
 	lease, err := s.c.Authorizer.Authorize(authCtx, authRequest)
 	cancel()
 	<-s.authSlots
@@ -145,20 +145,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func validLease(req AuthRequest, lease Lease) bool {
-	return lease.Subject == string(req.Role)+":"+req.NodeID && lease.ExpiresAt.After(time.Now())
+	return lease.Subject == routeSubject(req.Role, req.NodeID, req.Route) && lease.ExpiresAt.After(time.Now())
 }
+
+func requestRouteKey(request AuthRequest) string { return request.NodeID + "\x00" + request.Route }
 
 func (s *Server) enqueueDevice(conn net.Conn, req AuthRequest, lease Lease) {
 	w := &waitingDevice{conn: conn, req: req, lease: lease, done: make(chan struct{})}
+	key := requestRouteKey(req)
 	s.mu.Lock()
-	if s.closed || s.waitingCount >= s.c.MaxWaiting || len(s.waiting[req.NodeID]) >= s.c.MaxWaitingPerNode {
+	if s.closed || s.waitingCount >= s.c.MaxWaiting || len(s.waiting[key]) >= s.c.MaxWaitingPerNode {
 		s.mu.Unlock()
 		writeStatus(conn, http.StatusServiceUnavailable)
 		_ = conn.Close()
 		s.untrack(conn)
 		return
 	}
-	s.waiting[req.NodeID] = append(s.waiting[req.NodeID], w)
+	s.waiting[key] = append(s.waiting[key], w)
 	s.waitingCount++
 	s.mu.Unlock()
 	go s.watchWaiting(w)
@@ -192,16 +195,17 @@ func (s *Server) watchWaiting(w *waitingDevice) {
 }
 
 func (s *Server) removeWaiting(w *waitingDevice, expired bool) {
+	key := requestRouteKey(w.req)
 	s.mu.Lock()
-	list := s.waiting[w.req.NodeID]
+	list := s.waiting[key]
 	found := false
 	for i, candidate := range list {
 		if candidate == w {
 			found = true
-			s.waiting[w.req.NodeID] = append(list[:i], list[i+1:]...)
+			s.waiting[key] = append(list[:i], list[i+1:]...)
 			s.waitingCount--
-			if len(s.waiting[w.req.NodeID]) == 0 {
-				delete(s.waiting, w.req.NodeID)
+			if len(s.waiting[key]) == 0 {
+				delete(s.waiting, key)
 			}
 			break
 		}
@@ -224,8 +228,9 @@ func (s *Server) removeWaiting(w *waitingDevice, expired bool) {
 func (s *Server) connectConsumer(conn net.Conn, writer *bufio.Writer, req AuthRequest, lease Lease) {
 	var device *waitingDevice
 	var expired []*waitingDevice
+	key := requestRouteKey(req)
 	s.mu.Lock()
-	list := s.waiting[req.NodeID]
+	list := s.waiting[key]
 	now := time.Now()
 	for len(list) > 0 && !list[0].lease.ExpiresAt.After(now) {
 		expired = append(expired, list[0])
@@ -233,16 +238,16 @@ func (s *Server) connectConsumer(conn net.Conn, writer *bufio.Writer, req AuthRe
 		s.waitingCount--
 	}
 	if len(list) == 0 {
-		delete(s.waiting, req.NodeID)
+		delete(s.waiting, key)
 	} else {
-		s.waiting[req.NodeID] = list
+		s.waiting[key] = list
 	}
 	if lease.ExpiresAt.After(now) && len(list) > 0 && s.activeCount < s.c.MaxActive && s.activeByNode[req.NodeID] < s.c.MaxActivePerNode {
 		device = list[0]
-		s.waiting[req.NodeID] = list[1:]
+		s.waiting[key] = list[1:]
 		s.waitingCount--
 		if len(list) == 1 {
-			delete(s.waiting, req.NodeID)
+			delete(s.waiting, key)
 		}
 		s.activeCount++
 		s.activeByNode[req.NodeID]++
@@ -448,16 +453,23 @@ func copyHalf(dst, src net.Conn, done chan<- struct{}) {
 	done <- struct{}{}
 }
 
-func route(r *http.Request) (Role, string, bool) {
+func route(r *http.Request) (Role, string, string, bool) {
 	if r.Method != http.MethodConnect {
-		return "", "", false
+		return "", "", "", false
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) != 5 || parts[0] != "v1" || parts[1] != "relay" || parts[2] != "nodes" {
-		return "", "", false
+	if (len(parts) != 5 && len(parts) != 6) || parts[0] != "v1" || parts[1] != "relay" || parts[2] != "nodes" {
+		return "", "", "", false
 	}
-	role := Role(parts[4])
-	return role, parts[3], validRole(role) && validNodeID(parts[3])
+	serviceRoute := RouteStorage
+	roleIndex := 4
+	if len(parts) == 6 {
+		serviceRoute = parts[4]
+		roleIndex = 5
+	}
+	role := Role(parts[roleIndex])
+	return role, parts[3], serviceRoute,
+		validRole(role) && validNodeID(parts[3]) && validRoute(serviceRoute)
 }
 
 func validNodeID(id string) bool {

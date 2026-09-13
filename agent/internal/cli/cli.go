@@ -1,5 +1,4 @@
-// Package cli is the foreground development interface. Windows service hosting
-// will wrap the same runner after the service-account lifecycle is validated.
+// Package cli owns the validated interactive, setup, and service command paths.
 package cli
 
 import (
@@ -21,6 +20,15 @@ import (
 )
 
 func Execute(ctx context.Context, args []string, input io.Reader, output, logs io.Writer) error {
+	if len(args) > 0 && args[0] == "setup" {
+		return setupCommand(ctx, args[1:], input, output, logs)
+	}
+	if len(args) > 0 && args[0] == "service" {
+		return serviceCommand(ctx, args[1:], input, output, logs)
+	}
+	if len(args) > 0 && args[0] == "compute" {
+		return computeCommand(ctx, args[1:], output, logs)
+	}
 	if len(args) > 0 && args[0] == "pair" {
 		if len(args) > 1 && (args[1] == "list" || args[1] == "approve") {
 			return pairingOperatorCommand(ctx, args[1:], input, output, logs)
@@ -29,6 +37,9 @@ func Execute(ctx context.Context, args []string, input io.Reader, output, logs i
 	}
 	if len(args) > 0 && args[0] == "storage" {
 		return executeStorage(ctx, args[1:], input, output, logs)
+	}
+	if len(args) > 0 && args[0] == "workload" {
+		return workloadOperatorCommand(ctx, args[1:], input, output, logs)
 	}
 	o, err := parseOptions(args, logs)
 	if errors.Is(err, flag.ErrHelp) {

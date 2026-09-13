@@ -1,8 +1,8 @@
 # ADR 0002: Foreground agent identity and heartbeat persistence
 
-Status: implemented; Windows runtime validation pending.
+Status: implemented; current-user Windows DPAPI reload is process-tested, with reboot/sleep validation still pending.
 
-The first working agent uses the existing versioned HTTP API. A future control stream can reuse its identity and sequence rules. It is a foreground command, not a Windows service, so account ownership remains explicit.
+The agent uses the existing versioned HTTP API. A future control stream can reuse its identity and sequence rules. Foreground execution keeps account ownership explicit; the later Windows service deliberately runs under that same enrolled account so DPAPI scope does not change.
 
 ## State
 

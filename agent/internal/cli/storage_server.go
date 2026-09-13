@@ -15,6 +15,16 @@ import (
 )
 
 func serveStorage(ctx context.Context, o storageOptions, authorize storage.Authorizer, logs io.Writer, report storage.PublicationReporter) (err error) {
+	store, err := storage.Open(o.root)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, store.Close()) }()
+	return serveStorageWithStore(ctx, o, store, authorize, logs, report)
+}
+
+func serveStorageWithStore(ctx context.Context, o storageOptions, store *storage.Store,
+	authorize storage.Authorizer, logs io.Writer, report storage.PublicationReporter) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var certificate tls.Certificate
@@ -27,11 +37,6 @@ func serveStorage(ctx context.Context, o storageOptions, authorize storage.Autho
 	if o.remote != nil {
 		certificate = o.remote.certificate
 	}
-	store, err := storage.Open(o.root)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, store.Close()) }()
 	listener, err := net.Listen("tcp", o.listen)
 	if err != nil {
 		return err

@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -87,13 +85,9 @@ func managedStorage(ctx context.Context, args []string, input io.Reader, output,
 			}
 		}
 	}
-	data, err := io.ReadAll(io.LimitReader(input, 257))
+	key, err := readOperatorCredential(input)
 	if err != nil {
 		return err
-	}
-	key := strings.TrimSpace(string(data))
-	if !regexp.MustCompile(`^[A-Za-z0-9_-]{32,256}$`).MatchString(key) {
-		return errors.New("invalid operator credential")
 	}
 	fmt.Fprintln(logs, "Connecting to controller...")
 	node, err := controller.ResolveNode(ctx, key, o.node)

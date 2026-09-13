@@ -32,7 +32,7 @@
 - Compare old and new paths with the same fixtures. Label simulated latency and local results; avoid unmeasured claims of optimal performance.
 - Bound batching, buffering and retries. Acknowledgements must follow file, directory and journal durability barriers.
 - Make slow work and reconnection visible. Explain the next action and keep credentials out of progress/errors.
-- Consolidate lifecycle ownership and common validation. An end-user setup flow should not require SSH or manual firewall debugging; implement pairing, routing and service installation as explicit future slices.
+- Consolidate lifecycle ownership and common validation. The end-user setup flow must not require SSH or manual firewall debugging; pairing, routing, compute provisioning, and service installation are explicit resumable stages.
 
 ## Verification before a commit
 

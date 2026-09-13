@@ -39,6 +39,8 @@ jobs:
         working-directory: agent
       - run: go build -o bin/mesh-relay ./cmd/mesh-relay
         working-directory: agent
+      - run: go build -o bin/mesh-executor ./cmd/mesh-executor
+        working-directory: agent
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run db:migrate
@@ -46,6 +48,51 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run test:remote
+      - name: Validate cloud deployment
+        working-directory: deploy/cloud
+        run: |
+          sh -n initialize.sh
+          docker compose --env-file .env.example config --quiet
+      - name: Build cloud service images
+        working-directory: deploy/cloud
+        run: docker compose --env-file .env.example build control-plane relay
+  wsl-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+      - name: Build Windows host agent
+        working-directory: agent
+        env:
+          CGO_ENABLED: 0
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -trimpath -ldflags "-s -w" -o bin/mesh-agent.exe ./cmd/mesh-agent
+      - name: Build importable WSL2 compute bundle
+        run: |
+          mkdir -p agent/bin
+          docker build --file deploy/wsl/Dockerfile --tag mesh-wsl-rootfs .
+          docker create --name mesh-wsl-export mesh-wsl-rootfs
+          docker export --output agent/bin/mesh-wsl-rootfs-amd64.tar mesh-wsl-export
+          docker rm mesh-wsl-export
+          sha256sum agent/bin/mesh-wsl-rootfs-amd64.tar > agent/bin/mesh-wsl-rootfs-amd64.tar.sha256
+          sha256sum agent/bin/mesh-agent.exe > agent/bin/mesh-agent.exe.sha256
+          cp deploy/windows/setup-mesh.ps1 agent/bin/setup-mesh.ps1
+      - name: Retain guided Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesh-windows-amd64
+          path: |
+            agent/bin/mesh-agent.exe
+            agent/bin/mesh-agent.exe.sha256
+            agent/bin/mesh-wsl-rootfs-amd64.tar
+            agent/bin/mesh-wsl-rootfs-amd64.tar.sha256
+            agent/bin/setup-mesh.ps1
+          if-no-files-found: error
+          retention-days: 7
   native:
     strategy:
       matrix:

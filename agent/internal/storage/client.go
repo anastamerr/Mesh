@@ -124,7 +124,7 @@ func (c *Client) requestRange(ctx context.Context, method, path string, body io.
 	}
 	return res, nil
 }
-func (c *Client) json(ctx context.Context, method, path string, input, output any) error {
+func (c *Client) json(ctx context.Context, method, path string, input, output interface{}) error {
 	var body io.Reader
 	if input != nil {
 		data, err := json.Marshal(input)
@@ -141,7 +141,7 @@ func (c *Client) json(ctx context.Context, method, path string, input, output an
 	c.batch = res.Header.Get("Mesh-Transfer-Features") == batchFeature
 	return readJSON(ctx, res.Body, output)
 }
-func readJSON(ctx context.Context, r io.Reader, value any) error {
+func readJSON(ctx context.Context, r io.Reader, value interface{}) error {
 	data, err := io.ReadAll(io.LimitReader(r, MaxManifestBytes+1))
 	if err != nil {
 		if ctx.Err() != nil {

@@ -18,16 +18,34 @@ import { PAIRING_REPOSITORY, PairingRepository } from './pairing/repository';
 import { PairingService } from './pairing/pairing.service';
 import { RelayController, RelayGuard, RelayRepository, RelayTicketsController } from './relay/relay.controller';
 import { NetworkController } from './relay/network.controller';
+import { PostgresWorkloadRepository } from './database/postgres.workload-repository';
+import { WORKLOAD_REPOSITORY, WorkloadRepository } from './workloads/repository';
+import { WorkloadsController } from './workloads/workloads.controller';
+import { WorkloadsService } from './workloads/workloads.service';
 
-export async function createApp(config: Config, repository?: NodeRepository & StorageRepository & PairingRepository & RelayRepository) {
+type AppRepository = NodeRepository & StorageRepository & PairingRepository & RelayRepository & WorkloadRepository;
+
+export async function createApp(config: Config, repository?: AppRepository) {
+  let nodeRepository: NodeRepository;
+  let workloadRepository: WorkloadRepository;
+  if (repository) {
+    nodeRepository = repository;
+    workloadRepository = repository;
+  } else {
+    const pool = createPool(config.databaseUrl);
+    nodeRepository = new PostgresNodeRepository(pool);
+    workloadRepository = new PostgresWorkloadRepository(pool);
+  }
   @Module({
-    controllers: [HealthController, NodesController, PairingController, RelayController, RelayTicketsController, NetworkController, StorageController, CollectionsController],
+    controllers: [HealthController, NodesController, PairingController, RelayController, RelayTicketsController,
+      NetworkController, StorageController, CollectionsController, WorkloadsController],
     providers: [
       { provide: CONFIG, useValue: config },
-      { provide: NODE_REPOSITORY, useFactory: () => repository ?? new PostgresNodeRepository(createPool(config.databaseUrl)) },
+      { provide: NODE_REPOSITORY, useValue: nodeRepository },
       { provide: STORAGE_REPOSITORY, useExisting: NODE_REPOSITORY },
       { provide: PAIRING_REPOSITORY, useExisting: NODE_REPOSITORY },
-      AdminGuard, RelayGuard, NodesService, PairingService,
+      { provide: WORKLOAD_REPOSITORY, useValue: workloadRepository },
+      AdminGuard, RelayGuard, NodesService, PairingService, WorkloadsService,
     ],
   })
   class AppModule {}

@@ -53,8 +53,9 @@ func (a *HTTPAuthorizer) request(ctx context.Context, input AuthRequest) (Lease,
 	payload, err := json.Marshal(struct {
 		Role   Role   `json:"role"`
 		NodeID string `json:"nodeId"`
+		Route  string `json:"route,omitempty"`
 		Token  string `json:"token"`
-	}{input.Role, input.NodeID, input.Bearer})
+	}{input.Role, input.NodeID, routeForWire(input.Route), input.Bearer})
 	if err != nil {
 		return lease, ErrUnavailable
 	}
@@ -93,4 +94,11 @@ func (a *HTTPAuthorizer) request(ctx context.Context, input AuthRequest) (Lease,
 		return Lease{}, ErrUnavailable
 	}
 	return lease, nil
+}
+
+func routeForWire(route string) string {
+	if route == RouteStorage {
+		return ""
+	}
+	return route
 }

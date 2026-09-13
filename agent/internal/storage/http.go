@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-func jsonReply(w http.ResponseWriter, value any) {
+func jsonReply(w http.ResponseWriter, value interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(value)
 }

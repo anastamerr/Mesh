@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { loadEnvFile } from 'node:process';
 import { z } from 'zod';
 import { BEARER_TOKEN_PATTERN } from './auth/tokens';
@@ -15,6 +15,29 @@ export interface Config {
 
 export function loadEnvironment(): void {
   if (existsSync('.env')) loadEnvFile('.env');
+  loadSecretFiles(process.env);
+}
+
+type SecretValueKey = 'DATABASE_URL' | 'MESH_ADMIN_KEY' | 'MESH_RELAY_KEY';
+type SecretFileKey = 'DATABASE_URL_FILE' | 'MESH_ADMIN_KEY_FILE' | 'MESH_RELAY_KEY_FILE';
+
+function loadSecret(environment: NodeJS.ProcessEnv, valueKey: SecretValueKey, fileKey: SecretFileKey): void {
+  const path = environment[fileKey];
+  if (!path) return;
+  if (environment[valueKey]) throw new Error(`Invalid configuration: ${valueKey},${fileKey}`);
+  const info = lstatSync(path);
+  if (!info.isFile() || info.isSymbolicLink() || info.size < 1 || info.size > 4096) {
+    throw new Error(`Invalid configuration: ${fileKey}`);
+  }
+  const value = readFileSync(path, 'utf8').trim();
+  if (!value || value.includes('\n') || value.includes('\r')) throw new Error(`Invalid configuration: ${fileKey}`);
+  environment[valueKey] = value;
+}
+
+export function loadSecretFiles(environment: NodeJS.ProcessEnv): void {
+  loadSecret(environment, 'DATABASE_URL', 'DATABASE_URL_FILE');
+  loadSecret(environment, 'MESH_ADMIN_KEY', 'MESH_ADMIN_KEY_FILE');
+  loadSecret(environment, 'MESH_RELAY_KEY', 'MESH_RELAY_KEY_FILE');
 }
 
 const databaseSchema = z.object({

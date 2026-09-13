@@ -22,7 +22,7 @@ func TestMissingOrNullSequenceIsRejectedWithoutReset(t *testing.T) {
 			t.Fatal(err)
 		}
 		data, _ := json.Marshal(validState())
-		var document map[string]any
+		var document map[string]interface{}
 		if err := json.Unmarshal(data, &document); err != nil {
 			t.Fatal(err)
 		}

@@ -150,7 +150,7 @@ func (s *Store) writeBatch(ctx context.Context, id string, m Manifest, indices [
 	}
 	// Validate only this batch using the (collection, ordinal) primary key.
 	// Begin and Finish still validate the complete durable progress document.
-	args := make([]any, 1, len(indices)+1)
+	args := make([]interface{}, 1, len(indices)+1)
 	args[0] = id
 	for _, index := range indices {
 		args = append(args, index)

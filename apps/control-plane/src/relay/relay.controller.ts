@@ -8,7 +8,7 @@ import { parseBody } from '../http/parse-body';
 import { NODE_REPOSITORY } from '../nodes/repository';
 
 export interface RelayRepository {
-  authorizeRelay(role: 'device' | 'consumer', nodeId: string, tokenHash: string): Promise<{
+  authorizeRelay(role: 'device' | 'consumer', nodeId: string, route: string, tokenHash: string): Promise<{
     subject: string;
     expiresAt: Date;
   } | null>;
@@ -34,6 +34,7 @@ export class RelayTicketsController {
 const requestSchema = z.object({
   role: z.enum(['device', 'consumer']),
   nodeId: z.string().uuid(),
+  route: z.union([z.literal('storage'), z.string().regex(/^app-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)]).default('storage'),
   token: z.string().min(43).max(256).regex(/^[A-Za-z0-9_-]+$/),
 }).strict();
 
@@ -59,8 +60,8 @@ export class RelayController {
   @Post('authorize')
   @HttpCode(200)
   async authorize(@Req() request: FastifyRequest) {
-    const { role, nodeId, token } = parseBody(requestSchema, request);
-    const lease = await this.repository.authorizeRelay(role, nodeId, hashToken(token));
+    const { role, nodeId, route, token } = parseBody(requestSchema, request);
+    const lease = await this.repository.authorizeRelay(role, nodeId, route, hashToken(token));
     if (!lease) throw new UnauthorizedException('Relay access invalid, expired, or revoked');
     return lease;
   }

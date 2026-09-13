@@ -4,6 +4,7 @@ import { test, TestContext } from 'node:test';
 import { createApp } from '../src/app';
 import { hashToken } from '../src/auth/tokens';
 import { MemoryRepository } from './memory.repository';
+import { randomUUID } from 'node:crypto';
 
 const key = 'test_admin_key_012345678901234567890123456789';
 const admin = { authorization: `Bearer ${key}` };
@@ -19,11 +20,140 @@ async function setup(t: TestContext) {
 
 test('operator routes reject missing and incorrect credentials', async t => {
   const { request } = await setup(t);
-  for (const url of ['/v1/nodes', '/v1/enrollment-tokens']) {
+  for (const url of ['/v1/nodes', '/v1/enrollment-tokens', '/v1/workloads']) {
     const method = url.endsWith('tokens') ? 'POST' : 'GET';
     assert.equal((await request({ method, url })).statusCode, 401);
     assert.equal((await request({ method, url, headers: { authorization: `Bearer ${'x'.repeat(40)}` } })).statusCode, 401);
   }
+});
+
+test('typed workload desired state and observations are isolated to the assigned node', async t => {
+  const { request, repository } = await setup(t);
+  async function enroll(name: string) {
+    const issued = await request({ method: 'POST', url: '/v1/enrollment-tokens', headers: admin });
+    const enrolled = await request({ method: 'POST', url: '/v1/nodes/enroll', payload: {
+      enrollmentToken: issued.json().enrollmentToken, name, platform: 'windows', architecture: 'amd64', agentVersion: 'dev',
+    } });
+    return z.object({ node: z.object({ id: z.uuid() }), nodeCredential: z.string() }).parse(enrolled.json());
+  }
+  const first = await enroll('Compute host'), second = await enroll('Other host');
+  const environmentUrl = `/v1/nodes/${first.node.id}/execution-environments`;
+  const firstHeaders = { authorization: `Bearer ${first.nodeCredential}` };
+  assert.equal((await request({ method: 'POST', url: environmentUrl,
+    headers: { authorization: `Bearer ${second.nodeCredential}` },
+    payload: { kind: 'docker-linux', architecture: 'amd64', status: 'ready', runtimeVersion: '28.1.0' } })).statusCode, 401);
+  assert.equal((await request({ method: 'POST', url: environmentUrl, headers: firstHeaders,
+    payload: { kind: 'docker-linux', architecture: 'amd64', status: 'unavailable', runtimeVersion: null } })).statusCode, 200);
+  const job = {
+    id: randomUUID(), nodeId: first.node.id, name: 'Transcode demo', kind: 'job',
+    image: `example/transcoder@sha256:${'a'.repeat(64)}`, command: ['convert', '/mesh/input/video.mp4'],
+    resources: { cpuMillis: 2_000, memoryBytes: 512 * 1024 * 1024 }, inputCollectionId: null,
+    desiredState: 'running', servicePort: null,
+  };
+  assert.equal((await request({ method: 'POST', url: '/v1/workloads', payload: job })).statusCode, 401);
+  assert.equal((await request({ method: 'POST', url: '/v1/workloads', headers: admin,
+    payload: { ...job, image: 'example/transcoder:latest' } })).statusCode, 400);
+  assert.equal((await request({ method: 'POST', url: '/v1/workloads', headers: admin, payload: job })).statusCode, 409);
+  assert.equal((await request({ method: 'POST', url: environmentUrl, headers: firstHeaders,
+    payload: { kind: 'docker-linux', architecture: 'amd64', status: 'ready', runtimeVersion: '28.1.0' } })).statusCode, 200);
+  assert.equal((await request({ method: 'GET', url: environmentUrl })).statusCode, 401);
+  const environments = await request({ method: 'GET', url: environmentUrl, headers: admin });
+  assert.equal(environments.statusCode, 200);
+  assert.equal(environments.json()[0].status, 'ready');
+  const created = await request({ method: 'POST', url: '/v1/workloads', headers: admin, payload: job });
+  assert.equal(created.statusCode, 201);
+  assert.equal(created.json().revision, 1);
+  assert.equal((await request({ method: 'POST', url: '/v1/workloads', headers: admin, payload: job })).statusCode, 201);
+  assert.equal((await request({ method: 'POST', url: '/v1/workloads', headers: admin,
+    payload: { ...job, name: 'ID collision' } })).statusCode, 409);
+  const assignmentsUrl = `/v1/nodes/${first.node.id}/workloads`;
+  assert.equal((await request({ method: 'GET', url: assignmentsUrl,
+    headers: { authorization: `Bearer ${second.nodeCredential}` } })).statusCode, 401);
+  const assigned = await request({ method: 'GET', url: assignmentsUrl,
+    headers: { authorization: `Bearer ${first.nodeCredential}` } });
+  assert.equal(assigned.statusCode, 200);
+  assert.deepEqual(assigned.json().map((workload: { id: string }) => workload.id), [job.id]);
+  const observeUrl = `/v1/nodes/${first.node.id}/workloads/${job.id}/observations`;
+  const nodeHeaders = { authorization: `Bearer ${first.nodeCredential}` };
+  assert.equal((await request({ method: 'POST', url: observeUrl, headers: nodeHeaders,
+    payload: { revision: 2, state: 'pulling', exitCode: null, failureCode: null, outputCollectionId: null } })).statusCode, 409);
+  assert.equal((await request({ method: 'POST', url: observeUrl, headers: nodeHeaders,
+    payload: { revision: 1, state: 'pulling', exitCode: null, failureCode: null, outputCollectionId: null } })).statusCode, 200);
+  assert.equal((await request({ method: 'POST', url: observeUrl, headers: nodeHeaders,
+    payload: { revision: 1, state: 'succeeded', exitCode: null, failureCode: null, outputCollectionId: null } })).statusCode, 400);
+  const outputCollectionId = 'c'.repeat(64);
+  assert.equal((await request({ method: 'POST', url: observeUrl, headers: nodeHeaders,
+    payload: { revision: 1, state: 'succeeded', exitCode: 0, failureCode: null, outputCollectionId } })).statusCode, 409);
+  await repository.confirmCollection(first.node.id, hashToken(first.nodeCredential),
+    { id: outputCollectionId, fileCount: 1, totalBytes: 42 });
+  assert.equal((await request({ method: 'POST', url: observeUrl, headers: nodeHeaders,
+    payload: { revision: 1, state: 'succeeded', exitCode: 0, failureCode: null, outputCollectionId } })).statusCode, 200);
+  assert.equal((await request({ method: 'POST', url: observeUrl, headers: nodeHeaders,
+    payload: { revision: 1, state: 'running', exitCode: null, failureCode: null, outputCollectionId: null } })).statusCode, 409);
+  assert.equal(repository.collections.get(`${first.node.id}/${outputCollectionId}`)?.name, 'Transcode demo output');
+  assert.equal((await request({ method: 'GET', url: '/v1/workloads', headers: admin })).json()[0].outputCollectionId,
+    outputCollectionId);
+  assert.deepEqual((await request({ method: 'GET', url: assignmentsUrl, headers: nodeHeaders })).json(), []);
+  assert.equal((await request({ method: 'POST', url: `/v1/workloads/${job.id}/state`, headers: admin,
+    payload: { desiredState: 'stopped' } })).statusCode, 409);
+  await repository.revoke(first.node.id);
+  assert.equal((await request({ method: 'GET', url: assignmentsUrl, headers: nodeHeaders })).statusCode, 401);
+});
+
+test('applications advance revisions without accepting stale observations', async t => {
+  const { request, repository } = await setup(t);
+  const issued = await request({ method: 'POST', url: '/v1/enrollment-tokens', headers: admin });
+  const enrolled = await request({ method: 'POST', url: '/v1/nodes/enroll', payload: {
+    enrollmentToken: issued.json().enrollmentToken, name: 'Application host', platform: 'linux', architecture: 'amd64', agentVersion: 'dev',
+  } });
+  const node = z.object({ node: z.object({ id: z.uuid() }), nodeCredential: z.string() }).parse(enrolled.json());
+  repository.nodes.get(node.node.id)!.publicKeyFingerprint = 'sha256:test-device-fingerprint';
+  assert.equal((await request({ method: 'POST', url: `/v1/nodes/${node.node.id}/execution-environments`,
+    headers: { authorization: `Bearer ${node.nodeCredential}` },
+    payload: { kind: 'docker-linux', architecture: 'amd64', status: 'ready', runtimeVersion: '28.1.0' } })).statusCode, 200);
+  const application = {
+    id: randomUUID(), nodeId: node.node.id, name: 'Private app', kind: 'application',
+    image: `example/app@sha256:${'b'.repeat(64)}`, command: ['serve', '--port', '8080'],
+    resources: { cpuMillis: 500, memoryBytes: 128 * 1024 * 1024 }, inputCollectionId: null,
+    desiredState: 'stopped', servicePort: 8080,
+  };
+  assert.equal((await request({ method: 'POST', url: '/v1/workloads', headers: admin, payload: application })).statusCode, 201);
+  const changed = await request({ method: 'POST', url: `/v1/workloads/${application.id}/state`, headers: admin,
+    payload: { desiredState: 'running' } });
+  assert.equal(changed.statusCode, 200);
+  assert.equal(changed.json().revision, 2);
+  const replayed = await request({ method: 'POST', url: '/v1/workloads', headers: admin, payload: application });
+  assert.equal(replayed.statusCode, 201);
+  assert.equal(replayed.json().desiredState, 'running');
+  assert.equal(replayed.json().revision, 2);
+  const observationUrl = `/v1/nodes/${node.node.id}/workloads/${application.id}/observations`;
+  const nodeHeaders = { authorization: `Bearer ${node.nodeCredential}` };
+  const deviceTicketUrl = `/v1/nodes/${node.node.id}/workloads/${application.id}/relay-ticket`;
+  const consumerTicketUrl = `/v1/workloads/${application.id}/connection-ticket`;
+  assert.equal((await request({ method: 'POST', url: deviceTicketUrl, headers: nodeHeaders })).statusCode, 401);
+  assert.equal((await request({ method: 'POST', url: consumerTicketUrl })).statusCode, 401);
+  assert.equal((await request({ method: 'POST', url: consumerTicketUrl, headers: admin })).statusCode, 409);
+  assert.equal((await request({ method: 'POST', url: observationUrl, headers: nodeHeaders,
+    payload: { revision: 1, state: 'stopped', exitCode: null, failureCode: null, outputCollectionId: null } })).statusCode, 409);
+  assert.equal((await request({ method: 'POST', url: observationUrl, headers: nodeHeaders,
+    payload: { revision: 2, state: 'running', exitCode: null, failureCode: null, outputCollectionId: null } })).statusCode, 200);
+  const deviceTicket = await request({ method: 'POST', url: deviceTicketUrl, headers: nodeHeaders });
+  const consumerTicket = await request({ method: 'POST', url: consumerTicketUrl, headers: admin });
+  assert.equal(deviceTicket.statusCode, 201);
+  assert.equal(consumerTicket.statusCode, 201);
+  const ticketSchema = z.object({ nodeId: z.uuid(), route: z.string(), servicePort: z.number(),
+    publicKeyFingerprint: z.string(), expiresAt: z.string(), token: z.string().length(43) });
+  const device = ticketSchema.parse(deviceTicket.json()), consumer = ticketSchema.parse(consumerTicket.json());
+  assert.equal(device.route, `app-${application.id}`);
+  assert.equal(consumer.route, device.route);
+  assert.equal(consumer.servicePort, 8080);
+  assert.ok(await repository.authorizeRelay('device', node.node.id, device.route, hashToken(device.token)));
+  assert.equal(await repository.authorizeRelay('consumer', node.node.id, 'storage', hashToken(consumer.token)), null);
+  assert.ok(await repository.authorizeRelay('consumer', node.node.id, consumer.route, hashToken(consumer.token)));
+  assert.equal((await request({ method: 'GET', url: '/v1/workloads', headers: admin })).json()[0].observedState, 'running');
+  assert.equal((await request({ method: 'POST', url: `/v1/workloads/${application.id}/state`, headers: admin,
+    payload: { desiredState: 'stopped' } })).statusCode, 200);
+  assert.equal(await repository.authorizeRelay('consumer', node.node.id, consumer.route, hashToken(consumer.token)), null);
 });
 
 test('enrollment, credential isolation, monotonic heartbeat, and revocation', async t => {

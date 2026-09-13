@@ -4,7 +4,7 @@ September 8, 2026. This pass starts from the previous working tree, including it
 
 ## Scope and architecture
 
-Reviewed the native storage, CLI, controller client, identity, heartbeat, inventory and executable packages; control-plane controllers, services, contracts, database queries and migrations; operator scripts, live-test tools, CI and existing regression coverage. Vendored dependencies were not rewritten. There is no implemented compute engine or frontend to optimize: the executor is still a skeleton.
+Reviewed the native storage, CLI, controller client, identity, heartbeat, inventory and executable packages; control-plane controllers, services, contracts, database queries and migrations; operator scripts, live-test tools, CI and existing regression coverage. Vendored dependencies were not rewritten. At the time of this measurement there was no implemented compute engine or frontend; the later compute implementation and its evidence are tracked separately in ADR 0007 and subsequent decisions.
 
 The architecture already keeps bulk data off the controller. PostgreSQL owns enrollment, presence, scoped grants and catalogue metadata. The native storage server owns ordinary files and a SQLite journal. A copy scans a manifest, obtains a grant, reconciles offsets, transfers data and verifies publication. Reads verify the manifest and downloaded checksums. The controller is consulted for every authorized storage request.
 

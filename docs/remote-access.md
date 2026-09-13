@@ -1,6 +1,6 @@
 # Paired remote storage
 
-The backend supports an outbound HTTPS relay connection from both computers. The storage laptop needs no inbound port forwarding. The controller publishes the relay endpoint, so a paired agent and managed storage commands discover it automatically. This is a relay path; automatic LAN discovery, direct peer routing/NAT traversal, service installation, accounts and a GUI remain future work. Remote compute dispatch is not part of this storage transport.
+The backend supports an outbound HTTPS relay connection from both computers. The storage laptop needs no inbound port forwarding. The controller publishes the relay endpoint, so a paired agent and managed storage commands discover it automatically. Storage and workload-scoped application routes share the opaque relay without sharing authorization subjects. Automatic LAN discovery, direct peer routing/NAT traversal, accounts, and a GUI remain future work.
 
 ## Deployment and pairing
 
@@ -24,7 +24,7 @@ mesh-agent pair --server https://controller.example --name spare-laptop
 
 The agent displays a code and device public-key fingerprint. On the operator computer, use `mesh-agent pair list --server https://controller.example --operator-stdin`, then `mesh-agent pair approve --server https://controller.example --code XXXX-XXXX --fingerprint <verified-fingerprint> --operator-stdin`. Supply the operator credential on stdin, not in process arguments. Compare the fingerprint with the spare laptop before approving.
 
-Run the paired laptop with `mesh-agent run --root <dedicated-storage-folder>`. Use `--state-dir` consistently if a custom identity directory was selected during pairing. The controller and relay addresses are discovered from the saved controller configuration. The process must remain running and the laptop awake; this does not yet install an OS service or change power settings.
+Run the paired laptop with `mesh-agent run --root <dedicated-storage-folder>`. Use `--state-dir` consistently if a custom identity directory was selected during pairing. The controller and relay addresses are discovered from the saved controller configuration. On Windows, guided setup can install the same runner as an automatic service under the enrolled DPAPI user. Mesh does not change system power settings, so the laptop must still be configured not to sleep when remote availability is required.
 
 The operator uses existing `storage copy`, `storage get` and `storage catalog` commands with `--controller`, `--node` and `--operator-stdin`. `copy` needs `--source`; `get` needs `--collection` and `--destination`. An explicit `--server` keeps the existing direct storage path. `--relay` overrides the discovered relay. `--relay-ca` allows an explicitly selected private CA; ordinary public certificates require no custom CA.
 
