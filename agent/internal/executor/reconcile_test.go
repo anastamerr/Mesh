@@ -97,3 +97,35 @@ func TestReconcileNeverRemovesUnownedContainer(t *testing.T) {
 		t.Fatalf("unowned container was changed: %#v %v", result, runtime.actions)
 	}
 }
+
+func TestReconcileStopsRestartingAndPausedApplications(t *testing.T) {
+	for _, state := range []string{"restarting", "paused"} {
+		t.Run(state, func(t *testing.T) {
+			workload := job()
+			workload.Kind = "application"
+			workload.DesiredState = "stopped"
+			port := 8080
+			workload.ServicePort = &port
+			runtime := &fakeRuntime{exists: true, container: Container{WorkloadID: workload.ID,
+				Revision: 1, Image: workload.Image, State: state}}
+			result := Reconcile(context.Background(), runtime, Request{Workload: workload})
+			if result.State != "stopped" || strings.Join(runtime.actions, ",") != "inspect,stop" {
+				t.Fatalf("application reported stopped without stopping runtime: %#v %v", result, runtime.actions)
+			}
+			runtime.actions = nil
+			runtime.fail = "stop"
+			result = Reconcile(context.Background(), runtime, Request{Workload: workload})
+			if result.State == "stopped" {
+				t.Fatal("unsuccessful stop was acknowledged")
+			}
+			runtime.actions = nil
+			runtime.fail = ""
+			workload.DesiredState = "running"
+			workload.Revision = 2
+			result = Reconcile(context.Background(), runtime, Request{Workload: workload})
+			if result.State != "running" || strings.Join(runtime.actions, ",") != "inspect,stop,remove,pull,create,start" {
+				t.Fatalf("replacement did not stop active old revision: %#v %v", result, runtime.actions)
+			}
+		})
+	}
+}

@@ -96,21 +96,24 @@ func runNode(ctx context.Context, saved *state.State, store *state.Store, client
 	defer func() { err = errors.Join(err, storageStore.Close()) }()
 	workers := 2
 	stopped := make(chan error, 3)
+	// Heartbeats replace saved when persisting sequences and lease renewal.
+	// Capture immutable identity fields before starting that owner goroutine.
+	nodeID, credential := saved.NodeID, saved.Credential
 	go func() { stopped <- serveStorageWithStore(ctx, o.storage, storageStore, authorize, output, report) }()
 	go func() { stopped <- runner.Loop(ctx, saved, store, sender, inventory.Read, o.interval, output) }()
 	if o.compute {
 		workers++
 		launcher := compute.NewProcessLauncher(o.wsl)
 		publisher := &jobOutputPublisher{store: storageStore, controller: client,
-			nodeID: saved.NodeID, credential: saved.Credential}
+			nodeID: nodeID, credential: credential}
 		go func() {
-			stopped <- compute.Loop(ctx, client, launcher, publisher, saved.NodeID, saved.Credential,
+			stopped <- compute.Loop(ctx, client, launcher, publisher, nodeID, credential,
 				o.storage.root, o.interval, output)
 		}()
 		if o.relay != "" {
 			workers++
 			go func() {
-				stopped <- compute.ApplicationRouteLoop(ctx, client, launcher, saved.NodeID, saved.Credential,
+				stopped <- compute.ApplicationRouteLoop(ctx, client, launcher, nodeID, credential,
 					o.relay, relayTLS, deviceCertificate, o.interval, output)
 			}()
 		}

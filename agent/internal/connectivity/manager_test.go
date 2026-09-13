@@ -3,6 +3,7 @@ package connectivity
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -71,5 +72,46 @@ func TestPathReporterEmitsOnlyChanges(t *testing.T) {
 	reporter.Selected(PathRelay)
 	if calls.Load() != 2 {
 		t.Fatal(calls.Load())
+	}
+}
+
+func TestManagerClosesEveryConnectionWhenDialsRaceCancellation(t *testing.T) {
+	for range 50 {
+		ctx, cancel := context.WithCancel(context.Background())
+		ready := make(chan struct{}, 4)
+		release := make(chan struct{})
+		var peers []net.Conn
+		manager := Manager{}
+		for range 4 {
+			connection, peer := net.Pipe()
+			peers = append(peers, peer)
+			manager.Direct = append(manager.Direct, Route{Dial: func(context.Context) (net.Conn, error) {
+				ready <- struct{}{}
+				<-release
+				return connection, nil
+			}})
+		}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			connection, _ := manager.Dial(ctx, "tcp", "unused")
+			if connection != nil {
+				_ = connection.Close()
+			}
+		}()
+		for range 4 {
+			<-ready
+		}
+		close(release)
+		cancel()
+		<-done
+		for _, peer := range peers {
+			_ = peer.SetReadDeadline(time.Now().Add(time.Second))
+			_, err := peer.Read(make([]byte, 1))
+			_ = peer.Close()
+			if !errors.Is(err, io.EOF) {
+				t.Fatalf("cancelled route leaked a connection: %v", err)
+			}
+		}
 	}
 }

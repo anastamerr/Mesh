@@ -107,7 +107,9 @@ func (docker *DockerCLI) Inspect(ctx context.Context, name string) (Container, b
 }
 
 func (docker *DockerCLI) Pull(ctx context.Context, image string) error {
-	_, err := docker.run(ctx, "image", "pull", image)
+	// Progress output grows with image layers and can exceed the response bound
+	// even after a successful pull. Only the final image identifier is needed.
+	_, err := docker.run(ctx, "image", "pull", "--quiet", image)
 	return err
 }
 
@@ -138,6 +140,8 @@ func (docker *DockerCLI) Create(ctx context.Context, name string, request Reques
 		"--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
 		"--pids-limit", "256", "--cpus", strconv.FormatFloat(float64(workload.Resources.CPUMillis)/1000, 'f', 3, 64),
 		"--memory", strconv.FormatUint(workload.Resources.MemoryBytes, 10),
+		"--memory-swap", strconv.FormatUint(workload.Resources.MemoryBytes, 10),
+		"--log-driver", "local", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
 		"--tmpfs", "/tmp:rw,noexec,nosuid,size=67108864",
 		"--mount", "type=volume,source=mesh-data-" + workload.ID + ",target=/mesh/data"}
 	if request.InputPath != "" {

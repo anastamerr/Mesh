@@ -3,13 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import { Pool } from 'pg';
 import { PostgresNodeRepository } from '../src/database/postgres.repository';
 import { PostgresWorkloadRepository } from '../src/database/postgres.workload-repository';
 
 // Opt in with a dedicated test database. Each run creates and removes its own
 // schema; it never truncates existing tables. Account needs CREATE SCHEMA.
-test('PostgreSQL atomically consumes enrollment and serializes heartbeats/revocation', {
+test('PostgreSQL serializes enrollment, heartbeats, workload admission and revocation', {
   skip: !process.env.MESH_TEST_DATABASE_URL,
 }, async () => {
   const connectionString = process.env.MESH_TEST_DATABASE_URL;
@@ -18,7 +19,7 @@ test('PostgreSQL atomically consumes enrollment and serializes heartbeats/revoca
   let pool: Pool | undefined;
   try {
     await admin.query(`CREATE SCHEMA ${schema}`);
-    pool = new Pool({ connectionString, options: `-c search_path=${schema}`, max: 5 });
+    pool = new Pool({ connectionString, options: `-c search_path=${schema}`, application_name: schema, max: 5 });
     for (const name of (await readdir(resolve(__dirname, '../migrations'))).filter(name => name.endsWith('.sql')).sort()) {
       await pool.query(await readFile(resolve(__dirname, '../migrations', name), 'utf8'));
     }
@@ -101,6 +102,35 @@ test('PostgreSQL atomically consumes enrollment and serializes heartbeats/revoca
     assert.ok(await repository.authorizeRelay('consumer', node.id, consumerTicket!.route, consumerTicketHash));
     await workloads.setWorkloadState(application.id, 'stopped');
     assert.equal(await repository.authorizeRelay('consumer', node.id, consumerTicket!.route, consumerTicketHash), null);
+    // One application already occupies a slot; leave exactly one of 100 free.
+    for (let index = 0; index < 98; index++) {
+      assert.equal((await workloads.createWorkload({ ...workload, id: randomUUID() })).kind, 'created');
+    }
+    const admissionLock = await pool.connect();
+    let admissions: Promise<Awaited<ReturnType<typeof workloads.createWorkload>>[]> | undefined;
+    try {
+      await admissionLock.query('BEGIN');
+      await admissionLock.query('SELECT id FROM nodes WHERE id=$1 FOR UPDATE', [node.id]);
+      admissions = Promise.all(Array.from({ length: 4 }, () => workloads.createWorkload({ ...workload, id: randomUUID() })));
+      // Force every INSERT/lock contender to start before releasing the lock.
+      // This catches counting capacity using a snapshot taken before waiting.
+      let waiting = 0;
+      for (let attempt = 0; attempt < 100 && waiting < 4; attempt++) {
+        const blocked = await admin.query<{ count: string }>(`SELECT count(*) FROM pg_stat_activity
+          WHERE application_name=$1 AND wait_event_type='Lock'`, [schema]);
+        waiting = Number(blocked.rows[0]!.count);
+        if (waiting < 4) await delay(20);
+      }
+      assert.equal(waiting, 4, 'all admission contenders reached the lock');
+    } finally {
+      await admissionLock.query('ROLLBACK');
+      admissionLock.release();
+    }
+    assert.ok(admissions);
+    const admitted = await admissions;
+    assert.equal(admitted.filter(result => result.kind === 'created').length, 1);
+    assert.equal(admitted.filter(result => result.kind === 'unavailable').length, 3);
+    assert.equal((await workloads.assignments(node.id, hash))?.length, 100);
     await pool.query("UPDATE storage_grants SET expires_at=now()-interval '1 second' WHERE token_hash='grant-hash'");
     assert.equal(await repository.validateStorageGrant(node.id, hash, 'grant-hash', permission), false);
     // Issuance may win the lock first, but no grant validates after revocation commits.

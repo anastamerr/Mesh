@@ -29,6 +29,10 @@ func TestDockerCreateAppliesRestrictedJobPolicy(t *testing.T) {
 		}
 	}
 	joined := strings.Join(arguments, " ")
+	if !strings.Contains(joined, "--memory 134217728 --memory-swap 134217728") ||
+		!strings.Contains(joined, "--log-driver local --log-opt max-size=10m --log-opt max-file=3") {
+		t.Fatalf("container can exceed its swap or log budget: %v", arguments)
+	}
 	if !strings.Contains(joined, "target=/mesh/input,readonly") || !strings.Contains(joined, "target=/mesh/data") ||
 		strings.Contains(joined, "--privileged") {
 		t.Fatalf("unsafe or incomplete mount policy: %v", arguments)

@@ -1,0 +1,60 @@
+{
+  "environment": "win32/x64, loopback, local disk",
+  "measurements": [
+    {
+      "fixture": "large",
+      "workflow": "managed-copy",
+      "elapsedMs": 2356.3788999999997,
+      "firstFeedbackMs": 544.9243999999999,
+      "bytes": 134217728
+    },
+    {
+      "fixture": "large",
+      "workflow": "managed-get",
+      "elapsedMs": 1631.4542000000001,
+      "firstFeedbackMs": 581.989599999999,
+      "bytes": 134217728
+    },
+    {
+      "fixture": "large",
+      "workflow": "repeat-copy",
+      "elapsedMs": 1408.1653999999999,
+      "bytes": 134217728
+    },
+    {
+      "fixture": "small-files",
+      "workflow": "managed-copy",
+      "elapsedMs": 6910.466700000001,
+      "firstFeedbackMs": 1167.7513,
+      "bytes": 2048000
+    },
+    {
+      "fixture": "small-files",
+      "workflow": "managed-get",
+      "elapsedMs": 5132.7629000000015,
+      "firstFeedbackMs": 1171.1468999999997,
+      "bytes": 2048000
+    },
+    {
+      "fixture": "small-files",
+      "workflow": "repeat-copy",
+      "elapsedMs": 2292.4033000000018,
+      "bytes": 2048000
+    }
+  ],
+  "checks": [
+    "Named catalogue shows confirmed copies",
+    "Actionable missing-name and existing-destination errors",
+    "Real server kill: pending catalogue, resumed bytes, verified 256 MiB retrieval"
+  ],
+  "transcripts": {
+    "large": "Connecting to controller...\nScanning folder and calculating checksums...\nUploading: 0 B / 128.0 MiB (0%)\nUploading: 128.0 MiB / 128.0 MiB (100%); 106.2 MiB/s\nVerifying: 128.0 MiB / 128.0 MiB (100%)\nComplete: 128.0 MiB / 128.0 MiB (100%)\n",
+    "small-files": "Connecting to controller...\nScanning folder and calculating checksums...\nScanning: 314 files hashed, 1.2 MiB read...\nUploading: 0 B / 2.0 MiB (0%)\nUploading: 1.0 MiB / 2.0 MiB (51%); 729.4 KiB/s; about 1s left\nUploading: 2.0 MiB / 2.0 MiB (100%); 773.5 KiB/s\nVerifying: 2.0 MiB / 2.0 MiB (100%)\nComplete: 2.0 MiB / 2.0 MiB (100%)\n",
+    "catalogue": "NAME         FILES  SIZE       STATE      COLLECTION\nsmall-files  500    2.0 MiB    confirmed  50e74f350138b0457b174f865c587abfdcf597a58e4921271daa231370e2ce1a\nlarge        1      128.0 MiB  confirmed  aff03538f75d4e3bbefb98aa0ebe847deef00a0b2ddcedc809ca4564a690a8a2\n",
+    "missing": "Connecting to controller...\ncollection not found; run catalog to see copies on this node\n",
+    "interrupted": "Connecting to controller...\nScanning folder and calculating checksums...\nUploading: 0 B / 256.0 MiB (0%)\nstorage connection failed; check the agent and network. Retrying in 1s (2/3); checking saved progress...\nstorage connection failed; check the agent and network. Retrying in 2s (3/3); checking saved progress...\ncopy interrupted; rerun the same command to resume: storage connection failed; check the agent and network\n",
+    "resumed": "Connecting to controller...\nScanning folder and calculating checksums...\nUploading: 4.0 MiB / 256.0 MiB (2%); 4.0 MiB already present\nUploading: 120.0 MiB / 256.0 MiB (47%); 112.3 MiB/s; about 1s left; 4.0 MiB already present\nUploading: 236.0 MiB / 256.0 MiB (92%); 113.6 MiB/s; about 0s left; 4.0 MiB already present\nVerifying: 256.0 MiB / 256.0 MiB (100%); 4.0 MiB already present\nComplete: 256.0 MiB / 256.0 MiB (100%); 4.0 MiB already present\n"
+  },
+  "result": "PASS",
+  "maxSampledServerRSSKiB": 0
+}

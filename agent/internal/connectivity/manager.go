@@ -52,6 +52,16 @@ func (m *Manager) Dial(ctx context.Context, _, _ string) (net.Conn, error) {
 	}
 	child, cancel := context.WithCancel(ctx)
 	results := make(chan attempt, count)
+	discard := func(left int) {
+		go func() {
+			for range left {
+				late := <-results
+				if late.conn != nil {
+					_ = late.conn.Close()
+				}
+			}
+		}()
+	}
 	start := func(route Route, delay time.Duration) {
 		go func() {
 			if delay > 0 {
@@ -93,20 +103,16 @@ func (m *Manager) Dial(ctx context.Context, _, _ string) (net.Conn, error) {
 			}
 			cancel()
 			// Close any authenticated connection that loses the establishment race.
-			go func(left int) {
-				for range left {
-					late := <-results
-					if late.conn != nil {
-						_ = late.conn.Close()
-					}
-				}
-			}(remaining - 1)
+			discard(remaining - 1)
 			if m.OnSelected != nil {
 				m.OnSelected(result.path)
 			}
 			return result.conn, nil
 		case <-ctx.Done():
 			cancel()
+			// A successful dial may already be buffered when cancellation wins.
+			// Its connection still needs an owner to close it.
+			discard(remaining)
 			return nil, ctx.Err()
 		}
 	}

@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -38,8 +40,9 @@ func TestSetupPairsInitializesStorageAndResumes(t *testing.T) {
 	}))
 	defer server.Close()
 	stateDirectory, root := t.TempDir(), t.TempDir()
+	caPath := filepath.Join(t.TempDir(), "relay-ca.pem")
 	arguments := []string{"setup", "--server", server.URL, "--name", "Spare laptop",
-		"--state-dir", stateDirectory, "--root", root, "--direct-lan"}
+		"--state-dir", stateDirectory, "--root", root, "--direct-lan", "--relay-ca", caPath}
 	var output bytes.Buffer
 	if err := Execute(context.Background(), arguments, strings.NewReader(""), &output, io.Discard); err != nil {
 		t.Fatal(err)
@@ -51,8 +54,19 @@ func TestSetupPairsInitializesStorageAndResumes(t *testing.T) {
 	if err := Execute(context.Background(), arguments, strings.NewReader(""), &output, io.Discard); err != nil {
 		t.Fatal("resumable setup failed", err)
 	}
-	if starts != 1 || !strings.Contains(output.String(), "Setup complete") || !strings.Contains(output.String(), "--direct-lan") {
+	if starts != 1 || !strings.Contains(output.String(), "Setup complete") || !strings.Contains(output.String(), "--direct-lan") ||
+		!strings.Contains(output.String(), fmt.Sprintf("--relay-ca %q", caPath)) {
 		t.Fatalf("setup repeated pairing or omitted completion: starts=%d output=%q", starts, output.String())
+	}
+}
+
+func TestSetupRejectsCaseAliasedWindowsDirectories(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows paths compare without case")
+	}
+	root := t.TempDir()
+	if !pathsOverlap(root, strings.ToUpper(root)) {
+		t.Fatal("identity and storage can alias the same Windows directory")
 	}
 }
 

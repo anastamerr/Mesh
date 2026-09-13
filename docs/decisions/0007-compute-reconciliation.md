@@ -16,13 +16,19 @@ Agents may report only the current desired revision. Within a revision, observat
 
 ## Runtime restrictions and persistence
 
-Container names and volume names derive only from validated workload UUIDs. Images must use `@sha256:` digests. Containers run read-only, with all Linux capabilities dropped, `no-new-privileges`, a 256-process limit, explicit CPU and memory limits, and a bounded non-executable temporary filesystem. Jobs have no network. Applications use a private bridge and expose one declared port; no host port is published by this slice.
+Container names and volume names derive only from validated workload UUIDs. Images must use `@sha256:` digests. Containers run read-only, with all Linux capabilities dropped, `no-new-privileges`, a 256-process limit, explicit CPU and memory limits, and a bounded non-executable temporary filesystem. The memory-plus-swap limit equals the memory limit, so workloads cannot additionally consume host swap. Each newly created container uses the local logging driver with three 10 MB rotating files, independently of the host daemon's logging defaults. Jobs have no network. Applications use a private bridge and expose one declared port; no host port is published by this slice.
 
 Every workload receives a stable Docker volume mounted at `/mesh/data`. Replacing or stopping a container does not delete that volume. An input collection, when selected, must already be confirmed on the assigned node and is mounted read-only at `/mesh/input`. The executor will not remove a name collision unless its Mesh ownership labels match the workload and carry a valid revision.
+
+Stopping or replacing an application also stops containers in Docker restart backoff or a paused state. Neither state is treated as proof that the application has stopped; the runtime must acknowledge the stop operation first.
 
 After a successful job exit, the executor copies `/mesh/data` into a revision-specific private scratch directory under the approved native storage root. The native store scans, hashes, durably imports, verifies, and atomically publishes those files using the same immutable collection format as an upload. The node confirms the collection before its ID is attached to the terminal observation. Reconciliation retries exports and imports idempotently, so a controller outage cannot duplicate the job or publish partial results. The output appears in the ordinary catalogue as `<workload name> output` and can be retrieved with the existing `get` command.
 
 The executor reconciles rather than blindly creates. Existing running containers and completed jobs are observed without duplication. A newer revision stops and replaces only its owned container while retaining the volume. Process input/output and Docker command output are bounded, and runtime details are reduced to typed failure codes before they cross the control boundary.
+
+The agent admits at most two concurrent reconciliation operations. Readiness calls have a 30-second deadline and executor invocations have a 15-minute deadline; these bound control operations, not the runtime of a successfully started job. Failed process invocations leave assignments available for retry and do not manufacture terminal job observations. Runtime-reported failure observations retain their existing semantics. Storage publication retains its locking and durability barriers. These worker limits do not reserve aggregate CPU/RAM across workloads or enforce disk quotas.
+
+Controller workload admission takes the node row lock in a separate statement before counting capacity. This gives the subsequent INSERT a fresh READ COMMITTED snapshot after a competing admission commits. The 100-assignment ceiling is therefore preserved under simultaneous creates. Completed jobs do not occupy assignment slots; applications continue to occupy a slot when stopped.
 
 ## Current limits
 

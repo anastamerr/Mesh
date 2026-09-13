@@ -121,6 +121,9 @@ func setupCommand(ctx context.Context, arguments []string, input io.Reader, outp
 	if directLAN {
 		command += " --direct-lan"
 	}
+	if relayCA != "" {
+		command += " --relay-ca " + fmt.Sprintf("%q", relayCA)
+	}
 	fmt.Fprintf(output, "Setup complete. Start Mesh with:\n%s\n", command)
 	return nil
 }
@@ -144,7 +147,7 @@ func setupIdentity(directory string) (state.State, bool, error) {
 func pathsOverlap(first, second string) bool {
 	contains := func(parent, child string) bool {
 		relative, err := filepath.Rel(filepath.Clean(parent), filepath.Clean(child))
-		return err == nil && relative != ".." && relative != "." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+		return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 	}
-	return filepath.Clean(first) == filepath.Clean(second) || contains(first, second) || contains(second, first)
+	return contains(first, second) || contains(second, first)
 }

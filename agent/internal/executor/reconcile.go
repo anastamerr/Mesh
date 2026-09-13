@@ -41,6 +41,10 @@ var errInvalidRequest = errors.New("invalid executor request")
 
 func containerName(id string) string { return "mesh-" + id }
 
+func needsStop(container Container) bool {
+	return container.State == "running" || container.State == "restarting" || container.State == "paused"
+}
+
 func failed(revision uint64, code string) control.WorkloadObservation {
 	exitCode := 1
 	return control.WorkloadObservation{Revision: revision, State: "failed", ExitCode: &exitCode, FailureCode: &code}
@@ -99,7 +103,7 @@ func Reconcile(ctx context.Context, runtime Runtime, request Request) control.Wo
 		return failed(workload.Revision, "invalid-runtime")
 	}
 	if workload.DesiredState == "stopped" {
-		if exists && container.State == "running" {
+		if exists && needsStop(container) {
 			if err := runtime.Stop(ctx, name); err != nil {
 				return failed(workload.Revision, "runtime-failure")
 			}
@@ -125,7 +129,7 @@ func Reconcile(ctx context.Context, runtime Runtime, request Request) control.Wo
 		if container.WorkloadID != workload.ID {
 			return failed(workload.Revision, "invalid-runtime")
 		}
-		if container.State == "running" {
+		if needsStop(container) {
 			if err := runtime.Stop(ctx, name); err != nil {
 				return failed(workload.Revision, "runtime-failure")
 			}

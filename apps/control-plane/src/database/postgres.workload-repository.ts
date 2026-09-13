@@ -46,10 +46,13 @@ export class PostgresWorkloadRepository implements WorkloadRepository {
   async createWorkload(input: CreateWorkload): Promise<WorkloadCreation> {
     const creationHash = specificationHash(input);
     return transaction(this.pool, async client => {
+      // Acquire the admission lock before the INSERT takes its snapshot. A lock
+      // inside that statement cannot make its capacity count see a prior waiter.
+      await client.query('SELECT id FROM nodes WHERE id=$1 FOR UPDATE', [input.nodeId]);
       const inserted = await client.query<WorkloadRecord>(`INSERT INTO workloads AS w
         (id,node_id,execution_environment_id,name,kind,image,command,cpu_millis,memory_bytes,input_collection_id,service_port,desired_state,creation_hash)
         SELECT $1,$2,e.id,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12 FROM
-        (SELECT id FROM nodes WHERE id=$2 AND revoked_at IS NULL AND credential_expires_at>now() FOR UPDATE) n
+        (SELECT id FROM nodes WHERE id=$2 AND revoked_at IS NULL AND credential_expires_at>now()) n
         JOIN execution_environments e ON e.node_id=n.id AND e.kind='docker-linux' AND e.status='ready'
         WHERE ($9::text IS NULL OR EXISTS (SELECT 1 FROM collections c
           WHERE c.node_id=n.id AND c.id=$9 AND c.confirmed_at IS NOT NULL))
