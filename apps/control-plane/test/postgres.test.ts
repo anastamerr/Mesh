@@ -82,17 +82,18 @@ test('PostgreSQL atomically consumes enrollment and serializes heartbeats/revoca
     const replayed = await repository.createWorkload(application);
     assert.equal(replayed.kind, 'existing');
     if (replayed.kind === 'existing') assert.equal(replayed.workload.revision, 2);
-    await pool.query("UPDATE nodes SET public_key_fingerprint='sha256:integration-device' WHERE id=$1", [node.id]);
+    await pool.query('UPDATE nodes SET public_key_fingerprint=$2 WHERE id=$1', [node.id, 'c'.repeat(64)]);
     assert.equal(await repository.observeWorkload(node.id, hash, application.id,
       { revision: 2, state: 'running', exitCode: null, failureCode: null, outputCollectionId: null }), 'accepted');
-    const deviceTicket = await repository.createApplicationDeviceTicket(node.id, hash, application.id, 'app-device-ticket');
-    const consumerTicket = await repository.createApplicationConsumerTicket(application.id, 'app-consumer-ticket');
+    const deviceTicketHash = 'd'.repeat(64), consumerTicketHash = 'e'.repeat(64);
+    const deviceTicket = await repository.createApplicationDeviceTicket(node.id, hash, application.id, deviceTicketHash);
+    const consumerTicket = await repository.createApplicationConsumerTicket(application.id, consumerTicketHash);
     assert.equal(deviceTicket?.route, `app-${application.id}`);
     assert.equal(consumerTicket?.servicePort, 8080);
-    assert.ok(await repository.authorizeRelay('device', node.id, deviceTicket!.route, 'app-device-ticket'));
-    assert.ok(await repository.authorizeRelay('consumer', node.id, consumerTicket!.route, 'app-consumer-ticket'));
+    assert.ok(await repository.authorizeRelay('device', node.id, deviceTicket!.route, deviceTicketHash));
+    assert.ok(await repository.authorizeRelay('consumer', node.id, consumerTicket!.route, consumerTicketHash));
     await repository.setWorkloadState(application.id, 'stopped');
-    assert.equal(await repository.authorizeRelay('consumer', node.id, consumerTicket!.route, 'app-consumer-ticket'), null);
+    assert.equal(await repository.authorizeRelay('consumer', node.id, consumerTicket!.route, consumerTicketHash), null);
     await pool.query("UPDATE storage_grants SET expires_at=now()-interval '1 second' WHERE token_hash='grant-hash'");
     assert.equal(await repository.validateStorageGrant(node.id, hash, 'grant-hash', permission), false);
     // Issuance may win the lock first, but no grant validates after revocation commits.

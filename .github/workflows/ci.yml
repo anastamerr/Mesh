@@ -25,13 +25,13 @@ jobs:
       MESH_ADMIN_KEY: ci_only_operator_key_not_for_real_deployments
       MESH_TEST_AGENT_BINARY: ${{ github.workspace }}/agent/bin/mesh-agent
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum
@@ -59,8 +59,8 @@ jobs:
   wsl-bundle:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum
@@ -82,7 +82,7 @@ jobs:
           sha256sum agent/bin/mesh-agent.exe > agent/bin/mesh-agent.exe.sha256
           cp deploy/windows/setup-mesh.ps1 agent/bin/setup-mesh.ps1
       - name: Retain guided Windows package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mesh-windows-amd64
           path: |
@@ -95,12 +95,13 @@ jobs:
           retention-days: 7
   native:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: agent/go.mod
           cache-dependency-path: agent/go.sum

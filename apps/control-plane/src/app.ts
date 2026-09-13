@@ -36,6 +36,11 @@ export async function createApp(config: Config, repository?: AppRepository) {
     nodeRepository = new PostgresNodeRepository(pool);
     workloadRepository = new PostgresWorkloadRepository(pool);
   }
+  // An injected composite repository is one lifecycle owner. Alias its
+  // workload token so Nest does not invoke shutdown hooks twice on one value.
+  const workloadProvider = repository
+    ? { provide: WORKLOAD_REPOSITORY, useExisting: NODE_REPOSITORY }
+    : { provide: WORKLOAD_REPOSITORY, useValue: workloadRepository };
   @Module({
     controllers: [HealthController, NodesController, PairingController, RelayController, RelayTicketsController,
       NetworkController, StorageController, CollectionsController, WorkloadsController],
@@ -44,7 +49,7 @@ export async function createApp(config: Config, repository?: AppRepository) {
       { provide: NODE_REPOSITORY, useValue: nodeRepository },
       { provide: STORAGE_REPOSITORY, useExisting: NODE_REPOSITORY },
       { provide: PAIRING_REPOSITORY, useExisting: NODE_REPOSITORY },
-      { provide: WORKLOAD_REPOSITORY, useValue: workloadRepository },
+      workloadProvider,
       AdminGuard, RelayGuard, NodesService, PairingService, WorkloadsService,
     ],
   })
