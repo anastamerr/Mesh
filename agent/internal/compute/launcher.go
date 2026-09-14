@@ -60,6 +60,10 @@ func NewProcessLauncher(distribution string) *ProcessLauncher {
 	return &ProcessLauncher{program: "mesh-executor", arguments: []string{"reconcile"}}
 }
 
+func wslPathArguments(distribution, path string) []string {
+	return []string{"--distribution", distribution, "--user", "root", "--exec", "wslpath", "-a", "-u", path}
+}
+
 func commandOutput(ctx context.Context, program string, input []byte, arguments ...string) ([]byte, error) {
 	command := exec.CommandContext(ctx, program, arguments...)
 	command.Stdin = bytes.NewReader(input)
@@ -82,8 +86,7 @@ func (launcher *ProcessLauncher) linuxPath(ctx context.Context, path string) (st
 	if !launcher.windows || path == "" {
 		return path, nil
 	}
-	output, err := commandOutput(ctx, launcher.program, nil, "--distribution", launcher.distribution,
-		"--user", "root", "--exec", "wslpath", "--absolute", "--unix", path)
+	output, err := commandOutput(ctx, launcher.program, nil, wslPathArguments(launcher.distribution, path)...)
 	if err != nil {
 		return "", err
 	}

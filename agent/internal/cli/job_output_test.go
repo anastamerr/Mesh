@@ -39,7 +39,7 @@ func TestJobOutputPublisherImportsAndConfirmsCollection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := storage.Open(t.TempDir())
+	store, err := storage.Open(privateTempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}

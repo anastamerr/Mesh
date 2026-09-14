@@ -14,6 +14,15 @@ import (
 	"time"
 )
 
+func privateTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func TestEnrollmentAndStatusNeverPrintCredential(t *testing.T) {
 	credential := "mesh_node_" + strings.Repeat("a", 43)
 	enrollments := 0
@@ -23,10 +32,7 @@ func TestEnrollmentAndStatusNeverPrintCredential(t *testing.T) {
 			credential, time.Now().Add(time.Hour).UTC().Format(time.RFC3339))
 	}))
 	defer server.Close()
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
+	dir := privateTempDir(t)
 	args := []string{"enroll", "--server", server.URL, "--state-dir", dir, "--name", "Lenovo", "--token-stdin"}
 	var output bytes.Buffer
 	if err := Execute(context.Background(), args, strings.NewReader("mesh_enroll_"+strings.Repeat("b", 43)), &output, io.Discard); err != nil {

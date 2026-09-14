@@ -89,9 +89,12 @@ jobs:
           docker create --name mesh-wsl-export mesh-wsl-rootfs
           docker export --output agent/bin/mesh-wsl-rootfs-amd64.tar mesh-wsl-export
           docker rm mesh-wsl-export
-          sha256sum agent/bin/mesh-wsl-rootfs-amd64.tar > agent/bin/mesh-wsl-rootfs-amd64.tar.sha256
-          sha256sum agent/bin/mesh-agent.exe > agent/bin/mesh-agent.exe.sha256
           cp deploy/windows/setup-mesh.ps1 agent/bin/setup-mesh.ps1
+          cd agent/bin
+          sha256sum mesh-wsl-rootfs-amd64.tar > mesh-wsl-rootfs-amd64.tar.sha256
+          sha256sum mesh-agent.exe > mesh-agent.exe.sha256
+          sha256sum --check mesh-wsl-rootfs-amd64.tar.sha256
+          sha256sum --check mesh-agent.exe.sha256
       - name: Retain guided Windows package
         uses: actions/upload-artifact@v7
         with:

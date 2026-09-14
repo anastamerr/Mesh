@@ -1,6 +1,6 @@
 # ADR 0007: Typed one-container workload reconciliation
 
-Status: implemented controller/agent/executor, verified job-output collections, and verified-bundle WSL provisioning; live container lifecycle validation remains pending.
+Status: implemented controller/agent/executor, verified job-output collections, and verified-bundle WSL provisioning; a live digest-pinned job and authenticated output retrieval passed on Windows 11 hardware on 2026-09-14.
 
 ## Boundary
 
@@ -36,4 +36,4 @@ Controller workload admission takes the node row lock in a separate statement be
 - Export scratch files are retained under the private storage metadata directory for idempotent recovery; automatic reclamation needs a bounded retention policy before long-running deployments.
 - Application ports are routed only through the authenticated, paired-device channel in [ADR 0009](0009-authenticated-application-routing.md); they are never published on the host.
 - There is no scheduling, multi-container definition, GPU access, arbitrary environment injection, or automatic relocation.
-- Container runtime behavior is unit tested through a fake runtime and compile checked for Linux. A live Docker/WSL lifecycle test is still required before calling the compute experience production-ready.
+- Container runtime behavior is unit tested through a fake runtime and compile checked for Linux. Physical validation on a Windows 11 IdeaPad provisioned the CI WSL bundle, reported Docker 29.1.3 ready, completed a digest-pinned amd64 job, published its output collection, and retrieved the exact output through an authenticated storage grant. Reboot/sleep recovery and a genuinely public-WAN deployment remain separate production-readiness gates.

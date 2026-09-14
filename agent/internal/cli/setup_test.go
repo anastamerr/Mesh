@@ -39,7 +39,7 @@ func TestSetupPairsInitializesStorageAndResumes(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	stateDirectory, root := t.TempDir(), t.TempDir()
+	stateDirectory, root := privateTempDir(t), privateTempDir(t)
 	caPath := filepath.Join(t.TempDir(), "relay-ca.pem")
 	arguments := []string{"setup", "--server", server.URL, "--name", "Spare laptop",
 		"--state-dir", stateDirectory, "--root", root, "--direct-lan", "--relay-ca", caPath}

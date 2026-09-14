@@ -16,7 +16,7 @@ func TestImportPublishesVerifiedLocalOutputIdempotently(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(source, "nested", "result.txt"), []byte("converted"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	store, err := Open(t.TempDir())
+	store, err := Open(privateDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}

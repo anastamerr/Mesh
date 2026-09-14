@@ -10,7 +10,7 @@ import (
 )
 
 func TestApplicationTLSVerifiesPairedDeviceKey(t *testing.T) {
-	store, err := state.Open(t.TempDir())
+	store, err := state.Open(privateTempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
